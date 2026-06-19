@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+# harness-update — fetch the latest harness release and apply per manifest.
+#
+# Resolves the upstream repo (never hardcoded), fetches the latest release zip,
+# and copies files according to harness-manifest.json: managed paths are
+# overwritten, seed paths are written only if absent, skipped paths are never
+# touched.
+#
+# Dependencies: bash, coreutils, unzip, curl (or gh).
+# No jq dependency.
+#
+# Test hook: set HARNESS_RELEASE_ZIP to a local zip path to bypass network.
+#
+# Usage:
+#   bin/harness-update [--dry-run] [--repo owner/repo] [--zip <path>] [-h]
+
+set -euo pipefail
+
+# --- self-path: harness root = parent of bin/ --------------------------------
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_ROOT="$(cd "$SELF/.." && pwd)"
+MANIFEST="$HARNESS_ROOT/harness-manifest.json"
+SOURCE_FILE="$HARNESS_ROOT/.harness/source"
+
+HARNESS_RELEASE_ZIP="${HARNESS_RELEASE_ZIP:-}"
+DRY_RUN=0
+
+# --- helpers ----------------------------------------------------------------
+warn() { printf '\033[33mWARN\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[31mERROR\033[0m %s\n' "$*" >&2; exit 1; }
+info() { printf '\033[36m%s\033[0m %s\n' "$*"; }
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options]
+
+Apply the latest harness release to this directory.
+
+Options:
+  --dry-run          Print what would change without modifying anything
+  --repo owner/repo  Override the upstream repository slug
+  --zip <path>       Use a local zip file instead of fetching from GitHub
+  -h, --help         Show this help
+
+Environment:
+  HARNESS_REPO          Repository slug (owner/name), takes precedence
+  HARNESS_RELEASE_ZIP   Path to a local zip file (test hook, same as --zip)
+EOF
+  exit 0
+}
+
+# --- resolve repo slug -------------------------------------------------------
+resolve_repo() {
+  local repo="${HARNESS_REPO:-}"
+  if [ -n "${HARNESS_REPO_OVERRIDE:-}" ]; then
+    repo="$HARNESS_REPO_OVERRIDE"
+  fi
+  if [ -z "$repo" ] && [ -f "$SOURCE_FILE" ]; then
+    repo="$(sed -n 's/^repo=//p' "$SOURCE_FILE" 2>/dev/null || true)"
+  fi
+  if [ -z "$repo" ] && command -v gh &>/dev/null; then
+    repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  fi
+  if [ -z "$repo" ]; then
+    die "Cannot determine repository. Set HARNESS_REPO or run from a git repo with 'gh' installed."
+  fi
+  printf '%s' "$repo"
+}
+
+# --- parse args --------------------------------------------------------------
+ARGS=$(getopt -o h --long help,dry-run,repo:,zip: -n "$(basename "$0")" -- "$@") || exit 1
+eval set -- "$ARGS"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --repo)    HARNESS_REPO_OVERRIDE="$2"; shift 2 ;;
+    --zip)     HARNESS_RELEASE_ZIP="$(cd "$(dirname "$2")" 2>/dev/null && pwd)/$(basename "$2")"
+               shift 2 ;;
+    -h|--help) usage ;;
+    --) shift; break ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+# --- check manifest ----------------------------------------------------------
+[ -f "$MANIFEST" ] || die "Manifest not found: $MANIFEST"
+
+# --- resolve repo ------------------------------------------------------------
+REPO="$(resolve_repo)"
+
+# --- get release zip ---------------------------------------------------------
+TMPDIR="$(mktemp -d "$HARNESS_ROOT/AIMemory/tmp/harness-update.XXXXXX")"
+cleanup() { rm -rf "$TMPDIR"; }
+trap cleanup EXIT
+
+ZIP_FILE=""
+RELEASE_VERSION=""
+
+if [ -n "$HARNESS_RELEASE_ZIP" ]; then
+  [ -f "$HARNESS_RELEASE_ZIP" ] || die "Local zip not found: $HARNESS_RELEASE_ZIP"
+  ZIP_FILE="$HARNESS_RELEASE_ZIP"
+  # Try extracting version from zip filename: make_Harness-v<VERSION>-*.zip
+  RELEASE_VERSION="$(basename "$ZIP_FILE" | sed -n 's/.*make_Harness-v\([^-]*\)-.*/\1/p')"
+  [ -z "$RELEASE_VERSION" ] && RELEASE_VERSION="local-test"
+  info "Using local zip: $ZIP_FILE (version=$RELEASE_VERSION)"
+else
+  info "Fetching latest release from $REPO ..."
+  if command -v gh &>/dev/null; then
+    gh release download --repo "$REPO" --pattern '*.zip' --dir "$TMPDIR" 2>/dev/null \
+      || die "gh release download failed"
+  else
+    local_json="$TMPDIR/release.json"
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" -o "$local_json" \
+      || die "curl failed to fetch release info"
+    zip_url="$(grep -E '"browser_download_url".*\.zip"' "$local_json" \
+      | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/' | head -1)"
+    [ -n "$zip_url" ] || die "No zip asset found in latest release"
+    curl -fsSL -o "$TMPDIR/release.zip" "$zip_url" || die "curl failed to download zip"
+    ZIP_FILE="$TMPDIR/release.zip"
+  fi
+  # Find the downloaded zip
+  if [ -z "$ZIP_FILE" ]; then
+    ZIP_FILE="$(ls "$TMPDIR"/*.zip 2>/dev/null | head -1)"
+  fi
+  RELEASE_VERSION="$(basename "$ZIP_FILE" | sed -n 's/.*make_Harness-v\([^-]*\)-.*/\1/p')"
+  [ -z "$RELEASE_VERSION" ] && RELEASE_VERSION="unknown"
+fi
+
+[ -f "$ZIP_FILE" ] || die "No zip file available"
+
+# --- unzip -------------------------------------------------------------------
+UNZIP_DIR="$TMPDIR/contents"
+mkdir -p "$UNZIP_DIR"
+unzip -q "$ZIP_FILE" -d "$UNZIP_DIR" || die "Failed to unzip release"
+
+# Find the top-level directory inside the zip
+ZIP_TOP=""
+for item in "$UNZIP_DIR"/*/; do
+  [ -d "$item" ] && ZIP_TOP="$item" && break
+done
+if [ -z "$ZIP_TOP" ]; then
+  # No subdirectory — zip extracted flat
+  ZIP_TOP="$UNZIP_DIR/"
+fi
+
+# --- read manifest -----------------------------------------------------------
+parse_manifest_list() {
+  local key="$1"
+  python3 -c "
+import json,sys
+with open('$MANIFEST') as f:
+    d=json.load(f)
+for p in d.get('$key',[]):
+    print(p)
+" 2>/dev/null || {
+    # fallback: grep-based parsing
+    sed -n "/\"$key\":/,/\]/p" "$MANIFEST" | grep '"' | sed 's/.*"\(.*\)".*/\1/' | grep -v '^\[' || true
+  }
+}
+
+mapfile -t MANAGED < <(parse_manifest_list "managed")
+mapfile -t SEED < <(parse_manifest_list "seed")
+mapfile -t SKIPPED < <(parse_manifest_list "skipped")
+
+[ ${#MANAGED[@]} -gt 0 ] || die "No managed paths in manifest"
+
+# --- resolve target dir ------------------------------------------------------
+TARGET_DIR="${TARGET_DIR:-$HARNESS_ROOT}"
+
+# --- apply -------------------------------------------------------------------
+apply_file() {
+  local src="$1" dst="$2" kind="$3" result_file="$4"
+  local dst_full="$TARGET_DIR/$dst"
+  local src_full="$ZIP_TOP/$src"
+
+  if [ ! -e "$src_full" ]; then
+    echo "  [SKIP]  source missing: $src" >> "$result_file"
+    return
+  fi
+
+  # If source is a directory, copy recursively
+  if [ -d "$src_full" ]; then
+    if [ -d "$dst_full" ]; then
+      if [ "$kind" = "seed" ]; then
+        # Seed dir: copy only files that are absent in target
+        local count=0
+        while IFS= read -r -d '' f; do
+          local rel="${f#$src_full/}"
+          local t="$dst_full/$rel"
+          if [ ! -e "$t" ]; then
+            mkdir -p "$(dirname "$t")"
+            cp -a "$f" "$t"
+            count=$((count + 1))
+          fi
+        done < <(find "$src_full" -type f -print0 2>/dev/null || true)
+        [ "$count" -gt 0 ] && echo "  [SEED]  +$count new file(s) under ${dst%/}/" >> "$result_file"
+      else
+        # Managed dir: overwrite everything
+        cp -a "$src_full/." "$dst_full/"
+        echo "  [MANAGED] overwrote ${dst%/}/" >> "$result_file"
+      fi
+    else
+      # Dir doesn't exist in target
+      mkdir -p "$(dirname "$dst_full")"
+      cp -a "$src_full" "$dst_full"
+      echo "  [${kind^^}] created ${dst%/}/" >> "$result_file"
+    fi
+    return
+  fi
+
+  # Regular file
+  if [ "$kind" = "seed" ] && [ -f "$dst_full" ]; then
+    echo "  [SKIP]  seed exists: $dst" >> "$result_file"
+    return
+  fi
+
+  mkdir -p "$(dirname "$dst_full")"
+  cp -a "$src_full" "$dst_full"
+  echo "  [${kind^^}] $dst" >> "$result_file"
+}
+
+RESULT_FILE="$TMPDIR/apply.log"
+MANAGED_COUNT=0
+SEED_COUNT=0
+SKIP_COUNT=0
+
+for p in "${MANAGED[@]}"; do
+  apply_file "$p" "$p" "managed" "$RESULT_FILE"
+  MANAGED_COUNT=$((MANAGED_COUNT + 1))
+done
+
+for p in "${SEED[@]}"; do
+  apply_file "$p" "$p" "seed" "$RESULT_FILE"
+  SEED_COUNT=$((SEED_COUNT + 1))
+done
+
+SKIP_COUNT=$((MANAGED_COUNT + SEED_COUNT))
+
+# --- count untouched project files -------------------------------------------
+UNTOUCHED=0
+for p in "${SKIPPED[@]}"; do
+  [ -e "$TARGET_DIR/$p" ] && UNTOUCHED=$((UNTOUCHED + 1))
+done
+# Also count files in target that are not in the manifest at all
+UNTOUCHED_FILES=$(find "$TARGET_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l)
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "=== DRY RUN ==="
+  echo "Repository: $REPO"
+  echo "Release version: $RELEASE_VERSION"
+  echo "Target: $TARGET_DIR"
+  echo ""
+  echo "Would apply:"
+  cat "$RESULT_FILE" 2>/dev/null || true
+  echo ""
+  echo "Managed: ${#MANAGED[@]} path(s)"
+  echo "Seed: ${#SEED[@]} path(s)"
+  echo "Skipped/untouched: $(find "$TARGET_DIR" -not -path '*/\.*' -type f | wc -l) file(s) in target not in manifest"
+  echo ""
+  echo "Dry run complete. No files changed."
+  exit 0
+fi
+
+# --- write .harness/source ---------------------------------------------------
+mkdir -p "$TARGET_DIR/.harness"
+cat > "$TARGET_DIR/.harness/source" <<EOF
+repo=$REPO
+version=$RELEASE_VERSION
+updated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
+# --- summary -----------------------------------------------------------------
+echo "=== Update complete ==="
+echo "Repository: $REPO"
+echo "Version: $RELEASE_VERSION"
+cat "$RESULT_FILE" 2>/dev/null || true
+echo ""
+echo "Updated: $TARGET_DIR"
+echo ".harness/source written."

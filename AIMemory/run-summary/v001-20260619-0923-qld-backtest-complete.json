@@ -1,0 +1,35 @@
+{
+  "schema": "aimux-run-summary/1",
+  "session": "aimux-manager-antigravity-opencode-260619-082431",
+  "project_dir": "/home/wilowisp/Work/Personal/timing_wATH",
+  "totals": {"requests": 11, "responses": 3, "notices": 6, "highfives": 0, "redispatches": 2},
+  "release_reasons": {"response-seen": 3, "resolved": 6, "idle-stable": 5, "unacked": 0, "timeout": 0, "pane-gone": 0, "superseded": 6},
+  "durations_seconds": {"session_span": 2644, "turnaround_min": 2, "turnaround_avg": 143, "turnaround_max": 492},
+  "per_agent": {
+    "opencode": {"requests": 5, "completed": 2, "failed": 3},
+    "manager": {"requests": 3, "completed": 2, "failed": 1},
+    "antigravity": {"requests": 3, "completed": 1, "failed": 2}
+  },
+  "handoffs": [
+    {"type":"notice","to":"%0","handoff":"-","delivered":1781826540,"released":1781826542,"release_reason":"resolved"},
+    {"type":"notice","to":"%0","handoff":"-","delivered":1781826459,"released":1781826537,"release_reason":"idle-stable"},
+    {"type":"notice","to":"%0","handoff":"-","delivered":1781827322,"released":1781827324,"release_reason":"resolved"},
+    {"type":"notice","to":"%0","handoff":"-","delivered":0,"released":0,"release_reason":"superseded"},
+    {"type":"notice","to":"%0","handoff":"-","delivered":0,"released":0,"release_reason":"superseded"},
+    {"type":"notice","to":"%0","handoff":"-","delivered":0,"released":0,"release_reason":"superseded"},
+    {"type":"request","to":"antigravity","handoff":"AIMemory/handoff_propose-design.claude-opus-4-8.md","delivered":1781825839,"released":1781825940,"release_reason":"response-seen"},
+    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_propose-design.claude-opus-4-8.md","delivered":1781825842,"released":1781825922,"release_reason":"response-seen"},
+    {"type":"response","to":"manager","handoff":"AIMemory/design-proposal.opencode.md","delivered":1781827200,"released":1781827202,"release_reason":"resolved"},
+    {"type":"response","to":"manager","handoff":"AIMemory/design-proposal.antigravity.md","delivered":1781826355,"released":1781826357,"release_reason":"resolved"},
+    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_u-engine.claude-opus-4-8.md","delivered":1781826255,"released":1781826747,"release_reason":"response-seen"},
+    {"type":"request","to":"antigravity","handoff":"AIMemory/handoff_u-data-signals.claude-opus-4-8.md","delivered":1781826257,"released":1781826502,"release_reason":"idle-stable"},
+    {"type":"request","to":"manager","handoff":"AIMemory/handoff_u-engine-done.opencode.md","delivered":0,"released":0,"release_reason":"superseded"},
+    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_u-engine-fix.claude-opus-4-8.md","delivered":1781827126,"released":1781827384,"release_reason":"idle-stable"},
+    {"type":"request","to":"antigravity","handoff":"AIMemory/handoff_u-metrics-baselines.claude-opus-4-8.md","delivered":0,"released":0,"release_reason":"superseded"},
+    {"type":"request","to":"manager","handoff":"AIMemory/handoff_u-engine-fix-done.opencode.md","delivered":1781827708,"released":1781827751,"release_reason":"resolved"},
+    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_u-ablation-cli.claude-opus-4-8.md","delivered":1781827548,"released":1781827774,"release_reason":"idle-stable"},
+    {"type":"request","to":"manager","handoff":"AIMemory/handoff_u-ablation-cli-done.opencode.md","delivered":1781828243,"released":1781828283,"release_reason":"resolved"},
+    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_u-final.claude-opus-4-8.md","delivered":1781828043,"released":1781828480,"release_reason":"idle-stable"},
+    {"type":"response","to":"manager","handoff":"AIMemory/handoff_u-data-done.antigravity.md","delivered":0,"released":0,"release_reason":"superseded"}
+  ]
+}

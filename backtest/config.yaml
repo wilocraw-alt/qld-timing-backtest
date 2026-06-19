@@ -1,0 +1,17 @@
+ticker: QLD
+initial_capital: 10000
+daily_buy_limit: 1000000000000  # 1e12, 사실상 무제한(한도 제거)
+tranche_size: 1000
+pending_expiry_days: 5
+rearm_on_new_pivot: true
+pivot_lookback: 10
+pivot_min_move: 0.05
+strategy:
+  n: 5
+  m: 50
+  a: 10
+  b: 15
+  c: 20
+  d: 40
+  e: 10
+  f: 20

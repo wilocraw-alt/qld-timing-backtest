@@ -1,0 +1,522 @@
+# AIMemory work.log
+# Append-only event log. Newest events at the bottom.
+#
+# Format:   ### YYYY-MM-DD HH:MM | <model-id> | <EVENT>
+#           <body>
+#
+# Events:   SESSION_START, PROMPT, WORK_START, WORK_END,
+#           FILES_CREATED, FILES_MODIFIED, FILES_DELETED,
+#           HANDOFF, HANDOFF_RECEIVED, HANDOFF_CLOSED,
+#           NOTE, CORRECTION
+#
+# Rules:    PROTOCOL.md
+# ============================================================
+
+
+### 2026-06-19 08:24 | aimux | NOTE
+Dispatcher started (PID 1955, interval=2s, once=0).
+
+### 2026-06-19 08:25 | antigravity | SESSION_START
+antigravity
+
+### 2026-06-19 08:30 | claude-opus-4-8 | SESSION_START
+claude-opus-4-8 (manager)
+
+### 2026-06-19 08:30 | claude-opus-4-8 | PROMPT
+> 폴더 내용을 파악하고 aimux manager로 진행해줘.
+
+### 2026-06-19 08:30 | claude-opus-4-8 | NOTE
+Manager onboarded. Workers idle: antigravity(%1), opencode(%2). Task = QLD investment-timing
+strategy backtest + per-rule ablation. PROJECT.md request memo concrete but missing: tranche
+sizing model, daily buy-cap value, initial capital + backtest period. Asking user (no guessing
+per CLAUDE.md §0) before PROPOSE phase.
+
+### 2026-06-19 08:34 | claude-opus-4-8 | PROMPT
+> 비교군으로 초기 일괄 투자, 1/100 분할 매수 케이스 두개를 두고 비교해줘.
+
+### 2026-06-19 08:34 | claude-opus-4-8 | NOTE
+User answers so far: daily-cap=fixed $1,000/day; period=full QLD history; initial capital=$10,000.
+New requirement: add 2 baselines — (A) lump-sum buy&hold, (B) 1/100 split DCA. Tranche-sizing
+(Q1) still unanswered; 1/100 cadence ambiguous. Re-asking those two only.
+
+### 2026-06-19 08:37 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-083716-10255-20966 handoff=AIMemory/handoff_propose-design.claude-opus-4-8.md roles=PROPOSE
+
+### 2026-06-19 08:37 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-083716-10272-4807 handoff=AIMemory/handoff_propose-design.claude-opus-4-8.md roles=PROPOSE
+
+### 2026-06-19 08:40 | claude-opus-4-8 | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/requirements.claude-opus-4-8.md
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/handoff_propose-design.claude-opus-4-8.md
+
+### 2026-06-19 08:40 | claude-opus-4-8 | HANDOFF
+→ antigravity & opencode (parallel): PROPOSE design for QLD backtest. Propose only, no impl.
+See handoff_propose-design.claude-opus-4-8.md. Priority: HIGH.
+
+### 2026-06-19 08:37 | aimux | NOTE
+Dispatched request id=20260619-083716-10255-20966 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 08:37 | aimux | NOTE
+Dispatched request id=20260619-083716-10272-4807 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 08:37 | aimux | NOTE
+Auto-notice -> %0: worker 'antigravity' is blocked on a LOW-RISK user prompt (req 20260619-083716-10255-20966) — asked manager to act as the human and answer it in pane %1; worker held, not reassigned.
+[2026-06-19T08:40] HANDOFF_RECEIVED id=20260619-083716-10272-4807 from=%0 (manager) action=PROPOSE file=AIMemory/handoff_propose-design.claude-opus-4-8.md
+[2026-06-19T08:40] HANDOFF_CLOSED id=20260619-083716-10272-4807 response=AIMemory/design-proposal.opencode.md
+
+### 2026-06-19 08:38 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-083840-13795-8020 handoff=AIMemory/design-proposal.opencode.md roles=GENERAL_STATUS
+
+### 2026-06-19 08:38 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_propose-design.claude-opus-4-8.md. Acting on action items.
+
+### 2026-06-19 08:38 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/design-proposal.antigravity.md
+
+### 2026-06-19 08:38 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_propose-design.claude-opus-4-8.md.
+Completed: Created the design proposal with Peak & Low detection, architecture, tranching logic, and ablation matrix. See AIMemory/design-proposal.antigravity.md.
+
+### 2026-06-19 08:38 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-083857-14564-21669 handoff=AIMemory/design-proposal.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 08:41 | aimux | NOTE
+Manager RESOLVED req 20260619-083840-13795-8020 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:41 | aimux | NOTE
+Manager RESOLVED req 20260619-083857-14564-21669 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:41 | aimux | NOTE
+Manager RESOLVED req 20260619-083726-1955-8965 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:44 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-084403-24461-11556 handoff=AIMemory/handoff_u-data-signals.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 08:44 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-084403-24478-31727 handoff=AIMemory/handoff_u-engine.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 08:50 | claude-opus-4-8 | NOTE
+PROPOSE phase converged. Wrote plan-final.claude-opus-4-8.md (synthesized design + interface
+contract B1-B6 + decomposition). Resolved both PROPOSE responses out-of-band.
+
+### 2026-06-19 08:50 | claude-opus-4-8 | HANDOFF
+→ antigravity: IMPLEMENT U-DATA+SIGNALS (loader.py + indicators.py). See handoff_u-data-signals.
+→ opencode: IMPLEMENT U-ENGINE (portfolio.py + strategy.py), heaviest unit. See handoff_u-engine.
+Wave 1 parallel, disjoint files. Priority HIGH.
+
+### 2026-06-19 08:44 | aimux | NOTE
+Dispatched request id=20260619-084403-24478-31727 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 08:44 | aimux | NOTE
+Dispatched request id=20260619-084403-24461-11556 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 08:44 | aimux | NOTE
+Auto-notice -> %0: worker 'antigravity' is blocked on a LOW-RISK user prompt (req 20260619-084403-24461-11556) — asked manager to act as the human and answer it in pane %1; worker held, not reassigned.
+
+### 2026-06-19 08:45 | aimux | NOTE
+Dispatched response id=20260619-083857-14564-21669 -> tmux-pane:manager (%0).
+
+### 2026-06-19 08:56 | claude-opus-4-8 | NOTE
+Re: late delivery of antigravity PROPOSE response (design-proposal.antigravity.md) — judgment
+ACCEPTED, already consumed and converged into plan-final.claude-opus-4-8.md earlier; req was
+resolved out-of-band. No follow-up needed for the PROPOSE. Current active work = Wave-1
+U-DATA+SIGNALS (antigravity) per handoff_u-data-signals.
+
+### 2026-06-19 08:57 | claude-opus-4-8 | NOTE
+Acted as human for antigravity LOW-RISK prompt: approved `python3 AIMemory/tmp/sanity_test.py`
+(local read-only sanity of its own loader/indicators). Answered '1. Yes' in pane %1.
+
+### 2026-06-19 08:47 | aimux | NOTE
+Dispatched notice id=20260619-084427-1955-6448 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 08:48 | aimux | NOTE
+Auto-notice -> %0: worker 'antigravity' freed on 'idle-stable' with NO response (orig req 20260619-084403-24461-11556, handoff AIMemory/handoff_u-data-signals.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:00 | claude-opus-4-8 | NOTE
+Dispatcher LOW-RISK notice for antigravity (%1): re-checked pane — prompt already cleared.
+antigravity ran sanity_test then started `pip install -r backtest/requirements.txt` (1 task
+running). No live prompt. Sent NO keys per protocol. Existing poller (bry92m7v6) keeps watching.
+
+### 2026-06-19 08:49 | aimux | NOTE
+Dispatched notice id=20260619-083726-1955-8965 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 09:03 | claude-opus-4-8 | NOTE
+2nd false-waiting notice for antigravity (%1): re-checked, NO live prompt. Sent no keys.
+antigravity idle on board but no done-handoff yet; pane shows it 'waiting' for a self-spawned
+background pip install task. Checking whether deps actually installed to decide if it stalled.
+[2026-06-19T08:49] HANDOFF_RECEIVED id=20260619-084403-24478-31727 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_u-engine.claude-opus-4-8.md
+[2026-06-19T08:49] HANDOFF_CLOSED id=20260619-084403-24478-31727 response=AIMemory/handoff_u-engine-done.opencode.md
+
+### 2026-06-19 08:52 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-085225-13480-6304 handoff=AIMemory/handoff_u-engine-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 08:57 | aimux | NOTE
+Manager RESOLVED req 20260619-084822-1955-9945 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:57 | aimux | NOTE
+Manager RESOLVED req 20260619-083840-13795-8020 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:57 | aimux | NOTE
+Manager RESOLVED req 20260619-085225-13480-6304 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 08:57 | aimux | NOTE
+Dropped pending request for resolved req 20260619-085225-13480-6304 — the manager already verified & accepted that unit out-of-band; not delivering a duplicate follow-up.
+
+### 2026-06-19 08:58 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-085839-25345-13582 handoff=AIMemory/handoff_u-engine-fix.claude-opus-4-8.md roles=FIX
+
+### 2026-06-19 08:58 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-085839-25362-15917 handoff=AIMemory/handoff_u-metrics-baselines.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:12 | claude-opus-4-8 | NOTE
+ENV BLOCKER diagnosed+fixed: py3.8 + latest multitasking breaks yfinance import. Pinned
+multitasking==0.0.11 (installed, yfinance imports, QLD download works). Added pin to
+backtest/requirements.txt (also pandas<2.1 / numpy<1.25 for py3.8).
+
+### 2026-06-19 09:12 | claude-opus-4-8 | HANDOFF_CLOSED
+← antigravity U-DATA (loader.py + indicators.py): ACCEPTED. Verified by manager — indicators
+sanity passes (confirmed-low delayed by L, no daily repaint, no look-ahead), loader contract OK
+(.history single-col, tz-naive, sorted, deduped). Worker stalled on env/prompts; accepted out-of-band.
+
+### 2026-06-19 09:12 | claude-opus-4-8 | NOTE
+U-ENGINE (opencode) ACCEPTED-WITH-FIX: fixture validations pass, but ma200/tp1/tp2 sells re-fire
+every qualifying day (no latch) — contradicts §A3 (1 event per cycle). Issued FIX handoff.
+
+### 2026-06-19 09:12 | claude-opus-4-8 | HANDOFF
+→ opencode: FIX engine sell-trigger latching (handoff_u-engine-fix).
+→ antigravity: IMPLEMENT U-METRICS+BASELINES (handoff_u-metrics-baselines). Parallel.
+Answered antigravity live prompt (python3 sanity_test) with '1'.
+
+### 2026-06-19 08:58 | aimux | NOTE
+Dispatched request id=20260619-085839-25345-13582 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 09:00 | aimux | NOTE
+Dispatched response id=20260619-083840-13795-8020 -> tmux-pane:manager (%0).
+
+### 2026-06-19 09:18 | claude-opus-4-8 | NOTE
+Re: late re-delivery of opencode PROPOSE response (design-proposal.opencode.md) — ACCEPTED,
+already consumed into plan-final earlier; no follow-up. Active work = engine FIX (opencode) +
+U-METRICS/BASELINES (antigravity).
+
+### 2026-06-19 09:19 | claude-opus-4-8 | NOTE
+Answered antigravity LOW-RISK live prompt: '1' for `python3 AIMemory/tmp/loader_test.py`
+(local test of its metrics/baselines work). opencode busy on engine FIX.
+
+### 2026-06-19 09:02 | aimux | NOTE
+Dispatched notice id=20260619-084822-1955-9945 -> tmux-pane:%0 (%0).
+[2026-06-19T09:12] HANDOFF_RECEIVED id=20260619-085839-25345-13582 from=%0 (manager) action=FIX file=AIMemory/handoff_u-engine-fix.claude-opus-4-8.md
+[2026-06-19T09:12] HANDOFF_CLOSED id=20260619-085839-25345-13582 response=AIMemory/handoff_u-engine-fix-done.opencode.md
+
+### 2026-06-19 09:02 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-090240-2939-19345 handoff=AIMemory/handoff_u-engine-fix-done.opencode.md roles=FIX
+
+### 2026-06-19 09:02 | aimux | NOTE
+Manager RESOLVED req 20260619-084403-24461-11556 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:22 | claude-opus-4-8 | NOTE
+Resolved U-DATA req 20260619-084403-24461-11556 (already accepted out-of-band; manager-verified).
+
+### 2026-06-19 09:03 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-085839-25345-13582, handoff AIMemory/handoff_u-engine-fix.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:04 | aimux | NOTE
+Manager RESOLVED req 20260619-085839-25345-13582 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:26 | claude-opus-4-8 | HANDOFF_CLOSED
+← opencode U-ENGINE FIX: ACCEPTED. Manager re-ran test_fixture — ma200/tp1/tp2 each fire once
+per cycle (no repeated sells), all validations + 4 ablations pass. final_eq 10627→11181 (over-sell fixed).
+
+### 2026-06-19 09:05 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-090542-10089-18846 handoff=AIMemory/handoff_u-ablation-cli.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:28 | claude-opus-4-8 | HANDOFF
+→ opencode: IMPLEMENT U-ABLATION+CLI+config (handoff_u-ablation-cli). Builds orchestration to
+contract; metrics/baselines imported per §B5 (antigravity building in parallel). Smoke-run full on real QLD.
+
+### 2026-06-19 09:05 | aimux | NOTE
+Dispatched request id=20260619-090542-10089-18846 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 09:30 | claude-opus-4-8 | NOTE
+antigravity went off-track on U-METRICS+BASELINES: kept probing env (pip install -U yfinance,
+yfinance==999.999) instead of writing metrics.py/baselines.py, despite handoff saying env is fixed.
+Denied (4) the `pip install yfinance==999.999` prompt (and `-U yfinance` risks re-breaking the
+shared env). Re-pinned multitasking==0.0.11, re-verified yfinance import. Will give antigravity ONE
+corrective shot; if it stalls again, re-route metrics+baselines to opencode after ablation.
+
+### 2026-06-19 09:08 | aimux | NOTE
+Dispatched request id=20260619-090240-2939-19345 -> tmux-pane:manager (%0).
+[2026-06-19T09:30] HANDOFF_RECEIVED id=20260619-090542-10089-18846 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_u-ablation-cli.claude-opus-4-8.md
+[2026-06-19T09:30] HANDOFF_CLOSED id=20260619-090542-10089-18846 response=AIMemory/handoff_u-ablation-cli-done.opencode.md
+
+### 2026-06-19 09:09 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-090909-19890-3011 handoff=AIMemory/handoff_u-ablation-cli-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 09:09 | aimux | NOTE
+Manager RESOLVED req 20260619-090240-2939-19345 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:33 | claude-opus-4-8 | NOTE
+Resolved re-delivered engine-fix-done response (req 20260619-090240); already accepted/verified.
+
+### 2026-06-19 09:09 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-090542-10089-18846, handoff AIMemory/handoff_u-ablation-cli.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:10 | aimux | NOTE
+Manager RESOLVED req 20260619-090542-10089-18846 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:11 | aimux | NOTE
+Manager RESOLVED req 20260619-085839-25362-15917 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:38 | claude-opus-4-8 | NOTE
+U-ABLATION+CLI (opencode) ACCEPTED: full pipeline ran on real QLD 5030 rows (2006-06-21..2026-06-18),
+0 errors, results.csv produced. Sanity: QLD adj-close 0.98→97.91 (~99.6x buy&hold) → buy-only/only-*
+variants reaching $780-890k are CORRECT (deploy ~$10k early, ride ~99x). Finding: timing/sell rules
+massively underperform buy&hold on this leveraged-ETF bull run (full $34k vs buy-only $890k).
+U-METRICS+BASELINES re-routed away from antigravity → opencode (antigravity repeatedly env-thrashed
+on pip/yfinance prompts, produced no files for this unit despite handoff stating env is fixed; denied
+its pip probes, resolved its req). antigravity benched for now.
+
+### 2026-06-19 09:11 | aimux | NOTE
+Dropped pending request for resolved req 20260619-085839-25362-15917 — the manager already verified & accepted that unit out-of-band; not delivering a duplicate follow-up.
+
+### 2026-06-19 09:13 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-091357-29547-11028 handoff=AIMemory/handoff_u-final.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:42 | claude-opus-4-8 | NOTE
+antigravity overwrote backtest/requirements.txt during its env-thrash (dropped multitasking pin,
+downgraded yfinance to 0.2.66). Live env still works (yfinance 0.2.66 + multitasking 0.0.11 import OK,
+loader returns 5030 rows). Restored requirements.txt with multitasking==0.0.11 pin + matplotlib/pyyaml
+for reproducibility.
+
+### 2026-06-19 09:42 | claude-opus-4-8 | HANDOFF
+→ opencode: IMPLEMENT U-FINAL (metrics.py + baselines.py + plot.py + ablation.run_all wiring +
+full run all variants + Korean report_ko.txt). See handoff_u-final.
+
+### 2026-06-19 09:14 | aimux | NOTE
+Dispatched request id=20260619-091357-29547-11028 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 09:16 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_u-data-signals.claude-opus-4-8.md. Acting on action items.
+
+### 2026-06-19 09:16 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/requirements.txt
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/data/loader.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/engine/indicators.py
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/handoff_u-data-done.antigravity.md
+
+### 2026-06-19 09:16 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_u-data-signals.claude-opus-4-8.md.
+Completed: Implemented the loader, indicators, requirements.txt, and validated with tests. See AIMemory/handoff_u-data-done.antigravity.md.
+
+### 2026-06-19 09:16 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-091649-1971-22939 handoff=AIMemory/handoff_u-data-done.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 09:16 | aimux | NOTE
+Dropped pending response for resolved req 20260619-084403-24461-11556 — the manager already verified & accepted that unit out-of-band; not delivering a duplicate follow-up.
+
+### 2026-06-19 09:17 | aimux | NOTE
+Dispatched request id=20260619-090909-19890-3011 -> tmux-pane:manager (%0).
+
+### 2026-06-19 09:18 | aimux | NOTE
+Manager RESOLVED req 20260619-090909-19890-3011 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+[2026-06-19T09:42] HANDOFF_RECEIVED id=20260619-091357-29547-11028 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_u-final.claude-opus-4-8.md
+[2026-06-19T09:42] HANDOFF_CLOSED id=20260619-091357-29547-11028 response=AIMemory/handoff_u-final-done.opencode.md
+
+### 2026-06-19 09:20 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-092053-8089-17094 handoff=AIMemory/handoff_u-final-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 09:21 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-091357-29547-11028, handoff AIMemory/handoff_u-final.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:22 | aimux | NOTE
+Manager RESOLVED req 20260619-091357-29547-11028 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:48 | claude-opus-4-8 | HANDOFF_CLOSED
+← opencode U-FINAL: ACCEPTED. Manager independently verified: daily-buy ≤ $1,000 across ALL 8
+variants (worst exactly $1000.00), lumpsum cross-check $995,646.89, sanity script PASS, full
+pipeline reproducible on 17yr real QLD. Outputs: results.csv, equity.png, drawdown.png, report_ko.txt.
+
+### 2026-06-19 09:48 | claude-opus-4-8 | WORK_END
+complete — all units (U-DATA, U-ENGINE+fix, U-ABLATION+CLI, U-FINAL) accepted & verified.
+
+### 2026-06-19 09:23 | aimux | NOTE
+Checkpoint signalled (label=qld-backtest-complete) — dispatcher will snapshot the run-summary.
+
+### 2026-06-19 09:23 | aimux | NOTE
+run-summary snapshot: v001-20260619-0923-qld-backtest-complete.json (label=qld-backtest-complete); latest -> run-summary.json.
+
+### 2026-06-19 09:25 | aimux | NOTE
+Dispatched request id=20260619-092053-8089-17094 -> tmux-pane:manager (%0).
+
+### 2026-06-19 09:25 | aimux | NOTE
+Re-nudged tmux-pane:manager — request id=20260619-092053-8089-17094 not picked up (no agent activity after delivery).
+
+### 2026-06-19 09:25 | aimux | NOTE
+Auto-notice -> %2: worker 'manager' freed on 'unacked' with NO response (orig req 20260619-092053-8089-17094, handoff AIMemory/handoff_u-final-done.opencode.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:26 | aimux | NOTE
+Dispatched notice id=20260619-092558-1955-14293 -> tmux-pane:%2 (%2).
+
+### 2026-06-19 09:26 | aimux | NOTE
+Manager RESOLVED req 20260619-092053-8089-17094 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+[2026-06-19T09:44] DISPATCHER_NOTICE: manager unacked u-final-done. opencode verified outputs (results.csv/plots/report exist, sanity passed). Resolved 20260619-092053-8089-17094.
+
+### 2026-06-19 09:35 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-093502-21795-27422 handoff=AIMemory/handoff_exp-tranche.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:35 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-093503-21812-5523 handoff=AIMemory/handoff_exp-takeprofit.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:59 | claude-opus-4-8 | PROMPT
+> 비교군으로 ... / antigravity도 써줘. (follow-up experiments + use antigravity too)
+
+### 2026-06-19 09:59 | claude-opus-4-8 | HANDOFF
+→ opencode: EXPERIMENT A tranche sizing sweep {1000,2500,5000} (handoff_exp-tranche).
+→ antigravity: EXPERIMENT B take-profit c=100/d=200 (handoff_exp-takeprofit) — CLEAN handoff, exact
+script provided, explicit "deps installed, NEVER run pip, just python3" to avoid prior env rabbit-hole.
+Parallel. Distinct output CSVs (no clobber of results.csv).
+
+### 2026-06-19 09:35 | aimux | NOTE
+Dispatched request id=20260619-093502-21795-27422 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 09:35 | aimux | NOTE
+Dispatched request id=20260619-093503-21812-5523 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 09:35 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-093503-21812-5523) — held, NOT auto-answered; escalated to the human, do not reassign.
+[2026-06-19T10:00] HANDOFF_RECEIVED id=20260619-093502-21795-27422 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_exp-tranche.claude-opus-4-8.md
+[2026-06-19T10:00] HANDOFF_CLOSED id=20260619-093502-21795-27422 response=AIMemory/handoff_exp-tranche-done.opencode.md
+
+### 2026-06-19 09:36 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-093605-24178-6139 handoff=AIMemory/handoff_exp-tranche-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 09:36 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-093502-21795-27422, handoff AIMemory/handoff_exp-tranche.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:37 | aimux | NOTE
+Manager RESOLVED req 20260619-093502-21795-27422 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:05 | claude-opus-4-8 | HANDOFF_CLOSED
+← opencode EXP-A tranche sweep: ACCEPTED. Finding: tranche_size {1000,2500,5000} give IDENTICAL
+results because daily_buy_limit=$1000 is the binding constraint (big tranches just fill over more
+days → same capital, same prices). Real lever = daily_buy_limit / deployment fraction. Dispatching
+corrected sweep.
+
+### 2026-06-19 10:05 | claude-opus-4-8 | HANDOFF
+→ opencode: EXP-A2 daily-limit/deployment sweep (handoff_exp-deploy).
+
+### 2026-06-19 09:36 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_exp-takeprofit.claude-opus-4-8.md. Acting on action items.
+
+### 2026-06-19 09:36 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/experiments/takeprofit_hi.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/__init__.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/data/__init__.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/engine/__init__.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/analyze/__init__.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/experiments/__init__.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/output/exp_takeprofit.csv
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/handoff_exp-takeprofit-done.antigravity.md
+
+### 2026-06-19 09:36 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_exp-takeprofit.claude-opus-4-8.md.
+Completed: Experiment ran successfully. c=100/d=200 yields $71,235 final value vs $34,052 baseline (+109%), but MDD worsens 25.7%→42.5%. See backtest/output/exp_takeprofit.csv and AIMemory/handoff_exp-takeprofit-done.antigravity.md.
+
+### 2026-06-19 09:37 | aimux | NOTE
+Dispatched request id=20260619-093605-24178-6139 -> tmux-pane:manager (%0).
+
+### 2026-06-19 09:37 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-093755-28704-29374 handoff=AIMemory/handoff_exp-takeprofit-done.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 09:38 | aimux | NOTE
+Manager RESOLVED req 20260619-093605-24178-6139 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:39 | aimux | NOTE
+Manager RESOLVED req 20260619-093503-21812-5523 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:08 | claude-opus-4-8 | HANDOFF_CLOSED
+← antigravity EXP-B take-profit c=100/d=200: ACCEPTED (clean run, no env rabbit-hole this time —
+clean handoff w/ exact script + "never pip" worked). Result: $71,235 (CAGR 10.3%) vs baseline
+$34,052 (6.3%) = 2.09x, but MDD 25.7→42.5%, cash 81→56%. Also fixed missing __init__.py in backtest pkgs.
+
+### 2026-06-19 10:08 | claude-opus-4-8 | PROMPT
+> 일 매수 한도를 없애줘.
+
+### 2026-06-19 10:08 | claude-opus-4-8 | NOTE
+User directive: remove daily buy cap (strategy change). Dispatching: opencode = make daily_buy_limit
+unlimited (sentinel <=0) + regenerate full ablation/baselines/report; antigravity = no-cap tranche
+sweep {1k,2.5k,5k} on full (self-contained script, sets limit huge itself → parallel-safe).
+
+### 2026-06-19 09:41 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-094152-390-10278 handoff=AIMemory/handoff_nocap-regen.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 09:41 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-094152-407-7605 handoff=AIMemory/handoff_nocap-tranche.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 10:10 | claude-opus-4-8 | HANDOFF
+→ opencode: nocap-regen (config daily_buy_limit=1e12, NO engine edit → race-free; regenerate
+  results.csv/plots/report_ko.txt). → antigravity: nocap-tranche sweep {1k,2.5k,5k} (self-contained
+  script sets limit=1e12). Both avoid strategy.py mutation. Parallel.
+
+### 2026-06-19 09:41 | aimux | NOTE
+Dispatched request id=20260619-094152-390-10278 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 09:41 | aimux | NOTE
+Dispatched request id=20260619-094152-407-7605 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 09:42 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-094152-407-7605) — held, NOT auto-answered; escalated to the human, do not reassign.
+[2026-06-19T10:10] HANDOFF_RECEIVED id=20260619-094152-390-10278 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_nocap-regen.claude-opus-4-8.md
+[2026-06-19T10:10] HANDOFF_CLOSED id=20260619-094152-390-10278 response=AIMemory/handoff_nocap-regen-done.opencode.md
+
+### 2026-06-19 09:44 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-094402-5008-14759 handoff=AIMemory/handoff_nocap-regen-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 09:44 | aimux | NOTE
+Dispatched request id=20260619-094402-5008-14759 -> tmux-pane:manager (%0).
+
+### 2026-06-19 09:44 | aimux | NOTE
+Manager RESOLVED req 20260619-094402-5008-14759 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:44 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-094152-390-10278, handoff AIMemory/handoff_nocap-regen.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 10:14 | claude-opus-4-8 | NOTE
+opencode nocap-regen ACCEPTED: removing daily cap barely changed full ($34,052→$34,192, +0.4%);
+cap rarely bound. Real underperformance driver = low deployment (cash 81%) + sell rules, not the cap.
+Approved antigravity LOW-RISK '1' to run nocap_tranche.py (its assigned experiment script).
+
+### 2026-06-19 09:46 | aimux | NOTE
+Auto-notice -> %0: worker 'antigravity' freed on 'wait-timeout' with NO response (orig req 20260619-094152-407-7605, handoff AIMemory/handoff_nocap-tranche.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 09:46 | aimux | NOTE
+Inflight id=20260619-094152-407-7605 released on wait-timeout (242s blocked on an unanswered user prompt) — manager should answer/re-route; NOT treated as completion.
+
+### 2026-06-19 09:46 | aimux | NOTE
+Dispatched notice id=20260619-094434-1955-21063 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 09:45 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_nocap-tranche.claude-opus-4-8.md. Acting on action items.
+
+### 2026-06-19 09:45 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/experiments/nocap_tranche.py
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/output/exp_nocap_tranche.csv
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/handoff_nocap-tranche-done.antigravity.md
+
+### 2026-06-19 09:45 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_nocap-tranche.claude-opus-4-8.md.
+Completed: nocap tranche sweep done. ts1000=$34k, ts2500=$69k, ts5000=$125k. MDD worsens but Sharpe improves at ts5000. See backtest/output/exp_nocap_tranche.csv and AIMemory/handoff_nocap-tranche-done.antigravity.md.
+
+### 2026-06-19 09:46 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-094621-10651-11834 handoff=AIMemory/handoff_nocap-tranche-done.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 09:47 | aimux | NOTE
+Manager RESOLVED req 20260619-094152-390-10278 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 09:47 | aimux | NOTE
+Manager RESOLVED req 20260619-094152-407-7605 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 2 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:18 | claude-opus-4-8 | HANDOFF_CLOSED
+← antigravity nocap-tranche sweep: ACCEPTED. KEY finding — with daily cap removed, tranche size
+strongly drives results: ts1000 $34k/CAGR6.3%/MDD25%, ts2500 $69k/10.1%/47%, ts5000 $125k/13.5%/49%
+(monotone return↑, cash 81→61%, MDD↑). Real lever = deployment size, not the cap itself.
+Resolved opencode nocap-regen request + antigravity nocap-tranche request.

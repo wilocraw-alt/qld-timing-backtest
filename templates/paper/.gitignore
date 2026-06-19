@@ -1,0 +1,28 @@
+# Built outputs
+main.pdf
+main.docx
+main.pptx
+
+# Figure build products (regenerated from .svg / .fig.tex sources)
+figures/*.pdf
+figures/*.png
+
+# LaTeX auxiliary
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.xdv
+figures/*.aux
+figures/*.log
+.main_docx.tex
+.main_paper.pdf
+
+# Slide deps (install artifact)
+slides/node_modules/
+
+# QA renders
+slide-*.jpg

@@ -1,0 +1,57 @@
+# aimux agent roster — candidate pools for the launcher (AIMemory/bin/aimux-up).
+#
+# SINGLE source of truth for who may run as the manager and who may run as a
+# worker. Edit freely: add / remove / re-tag candidates, change model flags.
+# At launch you pick ONE manager and any number of workers from these pools.
+#
+# Format — two sections, one candidate per line:
+#   [manager]   candidates eligible to be the manager (you pick exactly 1).
+#               The FIRST entry is the prompt default ([1] / empty Enter).
+#   [worker]    candidates eligible to be workers (you pick 1 or more). Prefix a
+#               label with '*' to make it default-selected (empty Enter / unset
+#               AWM_WORKERS picks exactly the '*'-marked lines; none marked = all).
+#
+#   label | command
+#     label    short menu / pane name. Kind is auto-derived from the command's
+#              first word (claude->claude-code, codex->codex, opencode->opencode,
+#              agy->antigravity, qwen->qwen). Use a distinct label per line.
+#              NOTE: the manager pane is ALWAYS named & routed as "manager"
+#              regardless of its label, so workers can always return --to manager.
+#     command  CLI to launch, including any model flag (may contain colons).
+#
+# Blank lines and lines starting with # are ignored; inline # comments allowed.
+# The model tags below are SEEDS — adjust to the exact names your CLIs expose.
+#
+# antigravity note: agy reads AGENTS.md for its brief (shared with opencode).
+# It does not create any project-local config dir; per-user state is stored at
+# the antigravity CLI's own HOME-based data directory.
+#
+# codex note: codex reads AGENTS.md for its brief (shared with opencode) and its
+# config from ~/.codex/config.toml. For recommended model/approval/sandbox/trust
+# settings see templates/codex/config.toml. To run codex handoffs without stopping
+# at approval/trust prompts, launch with AWM_AUTO_APPROVE=1 (adds the codex bypass
+# flag) or set approval_policy="never" + trust the project dir in your codex config.
+#
+# Overrides (no need to edit this file):
+#   AWM_ROSTER=<file>   use a different roster file
+#   AWM_MANAGER=<label|index>            preselect the manager (skip the prompt)
+#   AWM_WORKERS=<labels/indices | all>   preselect workers   (skip the prompt)
+#   AWM_CONFIG=<file>   full explicit roster (first line = manager); bypasses
+#                       both pools and the selection prompts entirely.
+
+[manager]
+claude   | claude --model opus          # default manager (first entry = prompt default [1])
+antigravity | agy                        # auto model
+opencode | opencode                     # DeepSeek V4 Flash Free (set model in opencode config)
+codex    | codex --model gpt-5.5
+
+[worker]
+# A leading '*' marks a default-selected worker: pressing Enter at the worker
+# prompt (or leaving AWM_WORKERS unset) selects exactly the '*'-marked lines.
+# Other candidates stay selectable by typing their name/number. If none are
+# marked, the default is "all".
+*antigravity | agy                       # default worker — auto model
+*opencode | opencode                     # default worker — DeepSeek V4 Flash Free
+claude   | claude --model sonnet
+codex    | codex --model gpt-5.4-mini
+qwen     | qwen --model gemma4:e4b       # weak, fully local — privacy-only / low-stakes

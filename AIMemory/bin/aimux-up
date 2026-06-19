@@ -1,0 +1,872 @@
+#!/usr/bin/env bash
+# aimux-up — project launcher for the AIMemory tmux queue dispatcher.
+#
+# Brings up one tmux session: the manager pane on the upper-left with the
+# `aimux dispatch` pane directly beneath it, and the worker agents sharing the
+# whole right column. The dispatcher is what makes the queue flow — without it,
+# enqueued handoffs never get delivered.
+#
+# Unlike ~/bin/awm-setup, this launcher is project-local and aimux-aware:
+# it does NOT install the full agent-work-mem repo. It expects this
+# project's simplified AIMemory/ + AIMemory/bin/aimux to already exist.
+#
+# Usage:
+#   AIMemory/bin/aimux-up [project-dir]        launch (pick manager + workers)
+#   AIMemory/bin/aimux-up continue [name]      relaunch a saved session (same
+#                                              manager + workers); each agent
+#                                              RESUMES its prior CLI conversation.
+#                                              No name = most recent. Attaches if
+#                                              the session is still alive.
+#   AIMemory/bin/aimux-up continue --list      list saved sessions, then exit.
+#
+# Every launch saves a manifest (roster + per-pane CLI session id) under
+# AIMemory/.aimux/sessions/<session>.manifest; `continue` reads it back. Per-pane
+# session ids mean two panes of the same CLI kind (e.g. a claude manager + a
+# claude worker) each resume their OWN distinct conversation. claude/qwen resume
+# by exact id; antigravity/opencode/codex resume the kind's most recent session for
+# the project (so keep at most one of each of those when you rely on continue).
+#
+# Selection (interactive at launch when a terminal is attached):
+#   1) pick ONE manager from the roster's [manager] pool
+#   2) pick ANY number of workers from the roster's [worker] pool
+# The chosen roles drive per-agent SESSION BRIEFS: a manager brief + one worker
+# brief per worker are generated into the session state dir and each pane is told
+# to read ITS brief first. The committed CLAUDE.md / AGENTS.md /
+# QWEN.md are never modified — the generated brief + onboarding message are the
+# authoritative role source, so any CLI can be manager or worker.
+#
+# Config (override the defaults below):
+#   AWM_ROSTER=<file>     candidate pools (default AIMemory/agents.roster).
+#                         Sections [manager] / [worker]; lines "label | command".
+#   AWM_MANAGER=<sel>     preselect the manager (label or 1-based index); skips
+#                         the manager prompt.
+#   AWM_WORKERS=<sel>     preselect workers: comma/space list of labels/indices,
+#                         or "all". Skips the worker prompt. (This replaces the
+#                         old numeric worker-COUNT meaning.)
+#   AWM_CONFIG=<file>     full explicit roster, one entry per line (# comments
+#                         ok), first line = manager. Bypasses the pools AND both
+#                         selection prompts — the file IS the full roster.
+#   AWM_SESSION=<name>    fixed session name
+#   AWM_AUTO_APPROVE=1    launch agents so handoffs run without stopping at
+#                         permission/trust prompts: claude gets
+#                         --dangerously-skip-permissions, codex gets
+#                         --dangerously-bypass-approvals-and-sandbox.
+# Scratch files use AIMemory/tmp/ (TMPDIR), never /tmp, to avoid prompts.
+# First agent is the MANAGER (talks to the human, delegates via enqueue); its
+# pane is always named "manager" so workers can return --to manager.
+#
+# Roster entry formats (first entry is the MANAGER):
+#   simple : name:command[:init-file]              (no colons inside command)
+#   full   : name|command|init-file|split          (use when command has a
+#                                                    colon, e.g. a model tag)
+#   name       stable pane/routing name (manager, codex, qwen, ...)
+#   command    CLI to launch, may include flags (claude, qwen --model X, ...)
+#   init-file  OPTIONAL primary doc the agent reads first. If omitted it is
+#              derived from the CLI kind (see initfile_of): claude -> CLAUDE.md,
+#              codex/opencode/qwen/antigravity -> AGENTS.md.
+#   split      OPTIONAL layout vs the PREVIOUS agent pane: h (default, new
+#              column to the right) or v (stack below the previous pane).
+# Each agent is told to read ITS file plus the shared protocol, so panes don't
+# confuse their roles.
+
+set -uo pipefail
+
+# ── agent roster ────────────────────────────────────────────────────────────
+# Candidate pools come from a roster file (AIMemory/agents.roster by default,
+# override AWM_ROSTER). At launch you pick ONE manager from the [manager] pool
+# and ANY number of workers from the [worker] pool. The manager is always the
+# first pane (upper-left, dispatcher beneath it) and is named "manager". The
+# first chosen worker uses split=h (opens the right column); the rest stack v.
+CONFIG_FILE="${AWM_CONFIG:-}"
+ROSTER_FILE="${AWM_ROSTER:-}"               # resolved against PROJECT_DIR below
+DISPATCH_PANE_HEIGHT="${AWM_DISPATCH_HEIGHT:-10}"   # % of window height
+CLI_WARMUP="${AWM_CLI_WARMUP:-6}"                    # seconds to let CLIs boot
+
+# Embedded default roster — last-resort fallback when no external roster file
+# is found. MUST mirror AIMemory/agents.roster in order + *-marks (the external
+# file is the editable source of truth; this is the script-bundled copy).
+# Edit both together and keep them byte-for-byte consistent.
+read -r -d '' EMBEDDED_ROSTER <<'EMBEDROSTER' || true
+[manager]
+claude   | claude --model opus          # default manager (first entry = prompt default [1])
+antigravity | agy                        # auto model
+opencode | opencode                     # DeepSeek V4 Flash Free (set model in opencode config)
+codex    | codex --model gpt-5.5
+
+[worker]
+*antigravity | agy                       # default worker — auto model
+*opencode | opencode                     # default worker — DeepSeek V4 Flash Free
+claude   | claude --model sonnet
+codex    | codex --model gpt-5.4-mini
+qwen     | qwen --model gemma4:e4b       # weak, fully local — privacy-only / low-stakes
+EMBEDROSTER
+
+declare -a MGR_POOL=() WRK_POOL=()
+WRK_DEFAULT=""          # space-joined labels marked default (leading '*') in [worker]
+
+# Parse a roster file into MGR_POOL / WRK_POOL (entries "label|command").
+load_roster() {
+    local file="$1" section="" line lbl cmd
+    [ -f "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"                  # strip inline / full-line comments
+        line="$(trim "$line")"
+        [ -n "$line" ] || continue
+        case "$line" in
+            '[manager]') section=m; continue ;;
+            '[worker]')  section=w; continue ;;
+        esac
+        [[ "$line" == *"|"* ]] || continue
+        lbl="$(trim "${line%%|*}")"; cmd="$(trim "${line#*|}")"
+        # A leading '*' on a [worker] label marks it default-selected (used when
+        # the worker prompt is answered with an empty Enter / no AWM_WORKERS).
+        if [ "$section" = w ] && [ "${lbl:0:1}" = '*' ]; then
+            lbl="$(trim "${lbl#\*}")"
+            WRK_DEFAULT="${WRK_DEFAULT:+$WRK_DEFAULT }$lbl"
+        fi
+        [ -n "$lbl" ] && [ -n "$cmd" ] || continue
+        case "$section" in
+            m) MGR_POOL+=("$lbl|$cmd") ;;
+            w) WRK_POOL+=("$lbl|$cmd") ;;
+        esac
+    done < "$file"
+    return 0
+}
+
+# Pick ONE manager. Source: AWM_MANAGER (label or 1-based index) else an
+# interactive numbered prompt (tty) else the first pool entry. Echoes "label|cmd".
+choose_manager() {
+    local sel="${AWM_MANAGER:-}" i idx=-1
+    if [ -z "$sel" ] && [ -r /dev/tty ]; then
+        printf 'Managers:\n' > /dev/tty
+        for i in "${!MGR_POOL[@]}"; do
+            printf '  %d) %-10s %s\n' "$((i+1))" "${MGR_POOL[$i]%%|*}" "${MGR_POOL[$i]#*|}" > /dev/tty
+        done
+        printf 'Pick the manager (1-%d) [1]: ' "${#MGR_POOL[@]}" > /dev/tty
+        read -r sel < /dev/tty || sel=""
+    fi
+    [ -n "$sel" ] || sel=1
+    if [[ "$sel" =~ ^[0-9]+$ ]]; then
+        idx=$((sel-1))
+    else
+        for i in "${!MGR_POOL[@]}"; do [ "${MGR_POOL[$i]%%|*}" = "$sel" ] && idx=$i && break; done
+    fi
+    [ "$idx" -ge 0 ] 2>/dev/null && [ "$idx" -lt "${#MGR_POOL[@]}" ] 2>/dev/null || {
+        red "invalid manager '$sel' — using ${MGR_POOL[0]%%|*}" >&2; idx=0; }
+    printf '%s' "${MGR_POOL[$idx]}"
+}
+
+# Pick workers (1+). Source: AWM_WORKERS (labels/indices, comma/space, or "all")
+# else an interactive prompt (tty) else "all". Echoes one "label|cmd" per line,
+# in pool order, de-duplicated.
+choose_workers() {
+    local sel="${AWM_WORKERS:-}" i t idx
+    if [ -z "$sel" ] && [ -r /dev/tty ]; then
+        printf 'Workers:\n' > /dev/tty
+        for i in "${!WRK_POOL[@]}"; do
+            printf '  %d) %-10s %s\n' "$((i+1))" "${WRK_POOL[$i]%%|*}" "${WRK_POOL[$i]#*|}" > /dev/tty
+        done
+        printf 'Pick workers (e.g. 1,3 or names; "all") [%s]: ' "${WRK_DEFAULT:-all}" > /dev/tty
+        read -r sel < /dev/tty || sel=""
+    fi
+    [ -n "$sel" ] || sel="${WRK_DEFAULT:-all}"
+    declare -A picked=()
+    sel="${sel//,/ }"
+    for t in $sel; do
+        if [ "$t" = all ] || [ "$t" = ALL ]; then
+            for i in "${!WRK_POOL[@]}"; do picked[$i]=1; done; continue
+        fi
+        if [[ "$t" =~ ^[0-9]+$ ]]; then
+            idx=$((t-1))
+            [ "$idx" -ge 0 ] && [ "$idx" -lt "${#WRK_POOL[@]}" ] && picked[$idx]=1
+            continue
+        fi
+        for i in "${!WRK_POOL[@]}"; do [ "${WRK_POOL[$i]%%|*}" = "$t" ] && picked[$i]=1; done
+    done
+    if [ "${#picked[@]}" -eq 0 ]; then
+        red "no valid workers in '$sel' — using all" >&2
+        for i in "${!WRK_POOL[@]}"; do picked[$i]=1; done
+    fi
+    for i in "${!WRK_POOL[@]}"; do [ -n "${picked[$i]:-}" ] && printf '%s\n' "${WRK_POOL[$i]}"; done
+}
+
+# ── paths (derived; nothing hardcoded to a machine) ─────────────────────────
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../AIMemory/bin
+AIMUX="$SELF/aimux"
+
+# ── mode: launch (default) | continue ──────────────────────────────────────
+# `aimux-up`                 → interactive launch (pick manager + workers).
+# `aimux-up continue`        → relaunch the most recent saved session (same
+#                              manager + workers), each agent RESUMING its prior
+#                              CLI conversation. If it is still alive, just attach.
+# `aimux-up continue <name>` → same, for a specific saved session by name.
+# `aimux-up continue --list` → list saved sessions and exit.
+# `continue`/`resume` are accepted as the subcommand; they do NOT name a dir, so
+# PROJECT_DIR falls back to the script's own project (continue is project-local).
+MODE=launch; RESUME_SEL=""
+case "${1:-}" in
+    continue|resume|cont)
+        MODE=continue; RESUME_SEL="${2:-}"
+        set --                          # drop positionals → PROJECT_DIR = default
+        ;;
+    make|dev)
+        MODE=make
+        shift
+        if [ $# -gt 0 ]; then
+            AWM_WORKERS="${AWM_WORKERS:-$*}"
+        fi
+        ;;
+esac
+
+if [ "$MODE" = make ]; then
+    PROJECT_DIR="$(cd "$SELF/../.." && pwd)"
+else
+    PROJECT_DIR="${1:-$(cd "$SELF/../.." && pwd)}"
+    shift 2>/dev/null || true
+    if [ $# -gt 0 ]; then
+        AWM_WORKERS="${AWM_WORKERS:-$*}"
+    fi
+fi
+PROJECT_DIR="$(realpath "$PROJECT_DIR")"
+
+red()  { printf '\033[0;31m%s\033[0m\n' "$*"; }
+grn()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
+blu()  { printf '\033[0;34m%s\033[0m\n' "$*"; }
+die()  { red "ERROR: $*" >&2; exit 1; }
+send() { tmux send-keys -t "$1" "${*:2}" Enter; }
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+
+# Map a CLI command to an @awm_agent_kind tag.
+kind_of() {
+    case "$1" in
+        agy|antigravity)    echo antigravity ;;
+        claude|claude-code) echo claude-code ;;
+        codex|gpt|openai)   echo codex ;;
+        opencode|deepseek)  echo opencode ;;
+        qwen|qwen-code)     echo qwen ;;
+        *)                  echo "$1" ;;
+    esac
+}
+
+# Map a CLI command to the project file that CLI reads on startup. This is the
+# agent's "primary brief" — onboarding tells each agent to center on it.
+initfile_of() {
+    case "$1" in
+        agy|antigravity)    echo AGENTS.md ;;
+        claude|claude-code) echo CLAUDE.md ;;
+        codex|gpt|openai)   echo AGENTS.md ;;
+        opencode|deepseek)  echo AGENTS.md ;;
+        qwen|qwen-code)     echo QWEN.md ;;
+        *)                  echo AGENTS.md ;;
+    esac
+}
+
+# Resolve a CLI command word to a runnable location using the user's INTERACTIVE
+# login shell, so a CLI that exists ONLY there is still found: a wrapper/alias or
+# shell function defined in ~/.bashrc, or a bin dir that ~/.bashrc adds to PATH
+# (e.g. ~/.claude/local, nvm, pyenv). This script runs non-interactively and never
+# sourced the user's rc, so a plain `command -v` here would miss those and either
+# warn spuriously or — worse — let `env claude …` fail "command not found" in the
+# pane. We query the rc the SAME way the pane will (its own interactive shell), so
+# detection matches what actually runs. `-i` is required: Debian/Ubuntu's default
+# ~/.bashrc returns early for non-interactive shells, so `source ~/.bashrc` alone
+# would load nothing; tty-less `-i` emits harmless job-control notices to stderr,
+# which we discard.
+#   echo: absolute path when the word resolves to a disk executable; else empty.
+#   return: 0 if runnable in the pane (path OR alias OR function), 1 if not found.
+ISHELL="${SHELL:-/bin/bash}"
+resolve_cli() {  # $1 = command word (first token of a roster command)
+    local w="$1" out
+    out="$("$ISHELL" -ic "command -v -- $(printf %q "$w")" 2>/dev/null | head -n1)"
+    out="$(trim "$out")"
+    case "$out" in
+        /*) printf '%s' "$out"; return 0 ;;   # disk executable (absolute path)
+        "") return 1 ;;                        # not found in PATH / alias / function
+        *)  return 0 ;;                        # alias / function / builtin: runnable, no path
+    esac
+}
+
+# Name a pane + tag its kind + init-file + pin the stable name on the border.
+name_pane() {
+    local pid="$1" name="$2" kind="$3" init="${4:-}" win
+    tmux set-option -p -t "$pid" @awm_pane_name "$name"
+    tmux select-pane  -t "$pid" -T "$name"
+    tmux set-option -p -t "$pid" allow-rename off 2>/dev/null || true
+    [ -n "$kind" ] && tmux set-option -p -t "$pid" @awm_agent_kind "$kind"
+    [ -n "$init" ] && tmux set-option -p -t "$pid" @awm_init_file "$init"
+    win="$(tmux display-message -t "$pid" -p '#{window_id}')"
+    tmux set-window-option -t "$win" pane-border-status top 2>/dev/null || true
+    tmux set-window-option -t "$win" pane-border-format \
+      '#[bold] #{?@awm_pane_name,#{@awm_pane_name},#{pane_title}}#{?@awm_agent_kind, (#{@awm_agent_kind}),} #[default]' 2>/dev/null || true
+}
+
+# ── session resume support ───────────────────────────────────────────────────
+# Saved-session manifests live here; `continue` reads them back.
+SESSIONS_DIR="$PROJECT_DIR/AIMemory/.aimux/sessions"
+
+# A fresh UUID for a pane's CLI conversation (so each pane resumes EXACTLY its
+# own session even when two panes share a CLI kind, e.g. claude manager + claude
+# worker). Prefer the kernel source; fall back to uuidgen.
+gen_uuid() {
+    if [ -r /proc/sys/kernel/random/uuid ]; then cat /proc/sys/kernel/random/uuid
+    elif command -v uuidgen >/dev/null; then uuidgen
+    else printf 'aimux-%s-%s' "$$" "$1"; fi      # last resort: pid+index (unique per launch)
+}
+
+# Flags appended at FIRST launch so the pane's conversation is PERSISTED under a
+# KNOWN session id. Empty for CLIs that can't preassign an id (they resume "last"
+# for the project — fine when that kind appears once in the roster).
+launch_session_flags() {  # $1 kind  $2 uuid
+    case "$1" in
+        claude-code) printf -- '--session-id %s' "$2" ;;
+        qwen)        printf -- '--session-id %s --chat-recording' "$2" ;;
+        *)           : ;;   # opencode / codex / antigravity: no preassign
+    esac
+}
+
+# How a pane RESUMES its saved conversation on `continue`. claude/qwen resume the
+# exact uuid (collision-proof). opencode is pinned to its exact session in the
+# launch loop (see opencode_session_for_dir); antigravity/codex can only resume the
+# project bucket's MOST RECENT session, which bleeds across nested/sibling
+# projects sharing a git-root bucket (e.g. paper/ inside its parent) — the loop
+# warns for those.
+resume_session_flags() {  # $1 kind  $2 uuid   (opencode handled in the launch loop)
+    case "$1" in
+        claude-code) printf -- '--resume %s' "$2" ;;
+        qwen)        printf -- '--resume %s --chat-recording' "$2" ;;
+        antigravity) printf -- '--continue' ;;        # resumes most recent conversation
+        *)           : ;;   # codex handled specially (resume is a subcommand)
+    esac
+}
+
+# Exact opencode session id whose recorded `directory` EQUALS $1, newest first.
+# opencode buckets sessions by the project (git-root) worktree, so a bare
+# `opencode --continue` resumes the most recent session in that bucket — which,
+# for a NESTED/sibling project that shares the parent's git root (e.g.
+# <proj>/paper resuming under <proj>), is the WRONG project's conversation. We
+# pin the resume to the exact launch directory instead (opencode supports
+# `--session <id>`). The trailing quote in the match prevents a parent dir from
+# matching its own nested children. Empty => caller falls back to --continue.
+opencode_session_for_dir() {  # $1 absolute project dir
+    local dir="$1" store newest
+    store="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/storage/session"
+    [ -d "$store" ] || return 0
+    newest="$(grep -lF "\"directory\": \"$dir\"" "$store"/*/*.json 2>/dev/null \
+              | xargs -r ls -t 2>/dev/null | head -1)"
+    [ -n "$newest" ] && basename "$newest" .json
+}
+
+# Persist everything `continue` needs to rebuild this session. One AGENT line per
+# pane (order = pane order; first = manager), tab-delimited: name kind cmd init
+# split uuid. Written at launch with the BASE init files (briefs are regenerated
+# on continue, not reused).
+write_manifest() {  # uses globals: SESSION PROJECT_DIR N NAMES KINDS CMDS INITS SPLITS UUIDS
+    mkdir -p "$SESSIONS_DIR"
+    local mf="$SESSIONS_DIR/$SESSION.manifest" i
+    {
+        printf '# aimux session manifest — written by aimux-up; read by `aimux-up continue`\n'
+        printf 'session\t%s\n' "$SESSION"
+        printf 'project\t%s\n' "$PROJECT_DIR"
+        printf 'mode\t%s\n' "$MODE"
+        printf 'created\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        for (( i=0; i<N; i++ )); do
+            printf 'AGENT\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "${NAMES[$i]}" "${KINDS[$i]}" "${CMDS[$i]}" \
+                "${INITS[$i]}" "${SPLITS[$i]}" "${UUIDS[$i]}"
+        done
+    } > "$mf"
+    printf '%s' "$mf"
+}
+
+# List saved sessions (newest first) with their roster summary.
+list_manifests() {
+    [ -d "$SESSIONS_DIR" ] || { echo "(no saved sessions in $SESSIONS_DIR)"; return; }
+    local mf any=0
+    while IFS= read -r mf; do
+        any=1
+        local sess created roster
+        sess="$(awk -F'\t' '$1=="session"{print $2}' "$mf")"
+        created="$(awk -F'\t' '$1=="created"{print $2" "$3}' "$mf")"
+        roster="$(awk -F'\t' '$1=="AGENT"{printf "%s%s(%s)", sep, $2, $3; sep=" "}' "$mf")"
+        printf '  %-44s  %s\n      %s\n' "$sess" "$created" "$roster"
+    done < <(ls -1t "$SESSIONS_DIR"/*.manifest 2>/dev/null)
+    [ "$any" = 1 ] || echo "(no saved sessions in $SESSIONS_DIR)"
+}
+
+# Resolve the manifest to continue from $RESUME_SEL (empty = last-session, else a
+# session name or unique substring). Echoes the manifest path or dies.
+resolve_manifest() {
+    local sel="$1" cand=""
+    if [ -z "$sel" ]; then
+        local last="$PROJECT_DIR/AIMemory/.aimux/last-session"
+        [ -f "$last" ] && cand="$SESSIONS_DIR/$(head -n1 "$last").manifest"
+        [ -n "$cand" ] && [ -f "$cand" ] || \
+            cand="$(ls -1t "$SESSIONS_DIR"/*.manifest 2>/dev/null | head -n1)"
+    elif [ -f "$SESSIONS_DIR/$sel.manifest" ]; then
+        cand="$SESSIONS_DIR/$sel.manifest"
+    elif [ -f "$sel" ]; then
+        cand="$sel"
+    else
+        local -a hits=()
+        mapfile -t hits < <(ls -1t "$SESSIONS_DIR"/*"$sel"*.manifest 2>/dev/null)
+        [ "${#hits[@]}" -eq 1 ] && cand="${hits[0]}"
+        [ "${#hits[@]}" -gt 1 ] && { red "ambiguous '$sel' — matches:" >&2
+            printf '  %s\n' "${hits[@]##*/}" >&2; die "be specific or use: aimux-up continue --list"; }
+    fi
+    [ -n "$cand" ] && [ -f "$cand" ] || die "no saved session for '${sel:-<last>}' — try: aimux-up continue --list"
+    printf '%s' "$cand"
+}
+
+# ── build the roster ─────────────────────────────────────────────────────────
+# AWM_CONFIG (if given) is the full explicit roster and bypasses the pools +
+# selection prompts (first entry = manager). Otherwise: load the candidate pools
+# from the roster file, pick ONE manager + N workers, and assemble the roster as
+# "manager" + chosen workers (first worker split=h, the rest split=v).
+if [ "$MODE" = make ]; then
+    if [ ! -f "$PROJECT_DIR/DESIGN.md" ] || [ ! -f "$PROJECT_DIR/HARNESS-CHANGELOG.md" ] || [ ! -f "$PROJECT_DIR/VERSION" ]; then
+        die "make mode only runs inside the make_Harness scaffold"
+    fi
+fi
+
+RESUME_SESSION=""
+if [ "$MODE" = continue ]; then
+    case "$RESUME_SEL" in
+        --list|-l|list)
+            echo "Saved sessions (newest first):"; list_manifests; exit 0 ;;
+    esac
+    MANIFEST="$(resolve_manifest "$RESUME_SEL")" || exit 1
+    RESUME_SESSION="$(awk -F'\t' '$1=="session"{print $2; exit}' "$MANIFEST")"
+    _mproj="$(awk -F'\t' '$1=="project"{print $2; exit}' "$MANIFEST")"
+    [ -n "$_mproj" ] && PROJECT_DIR="$_mproj"
+    _mmode="$(awk -F'\t' '$1=="mode"{print $2; exit}' "$MANIFEST")"
+    [ -n "$_mmode" ] && MODE="$_mmode"
+    # Rebuild AGENTS as name|cmd|init|split|uuid (kind is re-derived from cmd).
+    mapfile -t AGENTS < <(awk -F'\t' '$1=="AGENT"{print $2"|"$4"|"$5"|"$6"|"$7}' "$MANIFEST")
+    [ "${#AGENTS[@]}" -ge 1 ] || die "manifest has no agents: $MANIFEST"
+    blu "Continuing session: $RESUME_SESSION  (from ${MANIFEST##*/})"
+    # Nested-project hazard. opencode/antigravity/codex bucket their CLI sessions by
+    # the git-root worktree, so two aimux projects that share a git root (one
+    # nested under the other — e.g. <proj>/paper inside <proj>) land in the SAME
+    # session bucket. On `continue`, a worker pane can then resume the OTHER
+    # project's conversation (whichever was most recent) even though the aimux
+    # run-state restored here is correct. opencode is now pinned to the exact
+    # dir (opencode_session_for_dir); antigravity/codex still resume "latest" and
+    # bleed. Detect the nesting (parent OR descendant aimux project) and warn.
+    _nested=""; _p="$(dirname "$PROJECT_DIR")"
+    while [ -n "$_p" ] && [ "$_p" != / ]; do
+        if ls "$_p"/AIMemory/.aimux/sessions/*.manifest >/dev/null 2>&1; then _nested="parent $_p"; break; fi
+        _p="$(dirname "$_p")"
+    done
+    if [ -z "$_nested" ]; then
+        _d="$(find "$PROJECT_DIR" -mindepth 2 -maxdepth 5 -type d -path '*/AIMemory/.aimux/sessions' 2>/dev/null \
+              | grep -vxF "$PROJECT_DIR/AIMemory/.aimux/sessions" | head -1)"
+        [ -n "$_d" ] && _nested="nested ${_d%/AIMemory/.aimux/sessions}"
+    fi
+    if [ -n "$_nested" ]; then
+        red "WARNING: this aimux project is NESTED with another ($_nested)."
+        red "         opencode/antigravity/codex bucket CLI sessions by git-root worktree, so a resumed"
+        red "         pane can show the OTHER project's conversation even though the run-state is"
+        red "         correct. Verify each resumed pane is on THIS project; keep separate aimux"
+        red "         projects in separate git roots to avoid the bleed."
+    fi
+elif [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    mapfile -t AGENTS < <(grep -vE '^\s*(#|$)' "$CONFIG_FILE")
+    blu "Loaded agent roster from $CONFIG_FILE"
+else
+    # Roster resolution: first hit wins, environment-independent.
+    #   (a) $AWM_ROSTER (explicit env override)
+    #   (b) $PROJECT_DIR/AIMemory/agents.roster (project-local)
+    #   (c) $SELF/../agents.roster (co-located with the script binary)
+    #   (d) embedded default in this script (last resort)
+    ROSTER_SOURCE=""
+    if [ -n "$ROSTER_FILE" ] && [ -f "$ROSTER_FILE" ]; then
+        ROSTER_SOURCE="$ROSTER_FILE"
+    elif [ -f "$PROJECT_DIR/AIMemory/agents.roster" ]; then
+        ROSTER_SOURCE="$PROJECT_DIR/AIMemory/agents.roster"
+    elif [ -f "$SELF/../agents.roster" ]; then
+        ROSTER_SOURCE="$SELF/../agents.roster"
+    fi
+    if [ -n "$ROSTER_SOURCE" ]; then
+        load_roster "$ROSTER_SOURCE"
+        blu "Roster pools from $ROSTER_SOURCE"
+    else
+        red "WARNING: no roster file found at any resolution path — using embedded default from aimux-up"
+        mkdir -p "$PROJECT_DIR/AIMemory/tmp"
+        _erf="$(mktemp "$PROJECT_DIR/AIMemory/tmp/embedded-roster-XXXXXX")"
+        printf '%s\n' "$EMBEDDED_ROSTER" > "$_erf"
+        load_roster "$_erf"
+        rm -f "$_erf"
+    fi
+    # Safety net: if pools are still empty (shouldn't happen with embedded default), force known-good defaults.
+    [ "${#MGR_POOL[@]}" -gt 0 ] || MGR_POOL=("claude|claude --model opus")
+    [ "${#WRK_POOL[@]}" -gt 0 ] || WRK_POOL=("antigravity|agy" "opencode|opencode")
+
+    _mgr="$(choose_manager)"; _mcmd="${_mgr#*|}"
+    # The manager pane is ALWAYS named "manager" (workers return --to manager),
+    # regardless of which CLI/label was chosen.
+    AGENTS=("manager|$_mcmd||")
+    mapfile -t _wsel < <(choose_workers)
+    _wnames=""
+    for (( w=0; w<${#_wsel[@]}; w++ )); do
+        _entry="${_wsel[$w]}"; _nm="${_entry%%|*}"; _cmd="${_entry#*|}"
+        [ "$w" -eq 0 ] && _sp="h" || _sp="v"
+        AGENTS+=("$_nm|$_cmd||$_sp")
+        _wnames="${_wnames:+$_wnames, }$_nm"
+    done
+    blu "Manager: ${_mgr%%|*} ($_mcmd)"
+    blu "Workers (${#_wsel[@]}): ${_wnames:-<none>}"
+    [ "${#_wsel[@]}" -ge 1 ] || die "no workers selected"
+fi
+[ "${#AGENTS[@]}" -ge 1 ] || die "no agents configured"
+
+if [ "$MODE" = make ]; then
+    if [ ! -f "$PROJECT_DIR/DESIGN.md" ] || [ ! -f "$PROJECT_DIR/HARNESS-CHANGELOG.md" ] || [ ! -f "$PROJECT_DIR/VERSION" ]; then
+        die "make mode only runs inside the make_Harness scaffold"
+    fi
+fi
+
+# ── parse roster into name / launch-command / kind / init-file / split ──────
+# Two formats per entry (see header):
+#   "name|command|init|split"   pipe-delimited (command may contain colons)
+#   "name:command[:init]"       legacy colon form (command must have no colon)
+# command may carry flags; CLI kind/init-file are keyed off the first token.
+declare -a NAMES=() CMDS=() BINS=() KINDS=() INITS=() SPLITS=() UUIDS=()
+for e in "${AGENTS[@]}"; do
+    split=""; uuid=""
+    if [[ "$e" == *"|"* ]]; then
+        IFS='|' read -r nm cmd init split uuid <<< "$e"
+        nm="$(trim "$nm")"; cmd="$(trim "$cmd")"; init="$(trim "$init")"; split="$(trim "$split")"; uuid="$(trim "$uuid")"
+    else
+        nm="${e%%:*}"; rest="${e#*:}"
+        case "$rest" in
+            *:*) cmd="${rest%%:*}"; init="${rest#*:}" ;;
+            *)   cmd="$rest";       init="" ;;
+        esac
+    fi
+    [ -n "$cmd" ] || cmd="$nm"
+    bin="${cmd%% *}"; base="$(basename "$bin")"
+    kind="$(kind_of "$base")"
+    [ -n "$init" ] || init="$(initfile_of "$base")"
+    [ -n "$split" ] || split="h"
+    # Optional auto-approve: append each CLI's bypass flag so the agent runs
+    # handoffs without stopping at permission/trust prompts.
+    if [ "${AWM_AUTO_APPROVE:-0}" = 1 ]; then
+        case "$kind" in
+            claude-code)
+                [[ "$cmd" == *--dangerously-skip-permissions* ]] || \
+                    cmd="$cmd --dangerously-skip-permissions" ;;
+            codex)
+                [[ "$cmd" == *--dangerously-bypass-approvals-and-sandbox* ]] || \
+                    cmd="$cmd --dangerously-bypass-approvals-and-sandbox" ;;
+            antigravity)
+                [[ "$cmd" == *--dangerously-skip-permissions* ]] || \
+                    cmd="$cmd --dangerously-skip-permissions" ;;
+        esac
+    fi
+    # Each pane gets a stable CLI session id: reused from the manifest on
+    # `continue`, freshly generated on a normal launch.
+    [ -n "$uuid" ] || uuid="$(gen_uuid "${#NAMES[@]}")"
+    NAMES+=("$nm"); CMDS+=("$cmd"); BINS+=("$bin"); KINDS+=("$kind"); INITS+=("$init"); SPLITS+=("$split"); UUIDS+=("$uuid")
+done
+N="${#NAMES[@]}"
+[ "${AWM_AUTO_APPROVE:-0}" = 1 ] && \
+    blu "AWM_AUTO_APPROVE=1: claude -> --dangerously-skip-permissions, codex -> --dangerously-bypass-approvals-and-sandbox, antigravity -> --dangerously-skip-permissions"
+
+# ── preflight ───────────────────────────────────────────────────────────────
+command -v tmux >/dev/null || die "tmux is not installed"
+command -v flock >/dev/null || die "flock is not installed (util-linux)"
+[ -x "$AIMUX" ] || die "aimux not found/executable at $AIMUX"
+[ -f "$PROJECT_DIR/AIMemory/PROTOCOL.md" ] || \
+    red "WARNING: $PROJECT_DIR/AIMemory/PROTOCOL.md missing — is this the right project?"
+
+# ── skills-sync: auto-install missing skills from lock ──────────────────────
+blu "Syncing skills from skills-lock.json..."
+"$AIMUX" skills-sync || true
+
+# Session name carries a timestamp so each launch is unique and never collides
+# with a previous one still running on the same tmux server.
+if [ "$MODE" = continue ]; then
+    # Reuse the saved name → same AIMUX_STATE (work.log / queue carry over). If it
+    # is still running, there is nothing to rebuild — just attach to it.
+    SESSION="$RESUME_SESSION"
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        grn "Session '$SESSION' is still alive — attaching (nothing to relaunch)."
+        if [ -z "${TMUX:-}" ]; then exec tmux attach-session -t "$SESSION"
+        else exec tmux switch-client -t "$SESSION"; fi
+    fi
+    blu "Relaunching '$SESSION' — each agent resumes its prior conversation."
+elif [ -n "${AWM_SESSION:-}" ]; then
+    SESSION="$AWM_SESSION"
+    tmux has-session -t "$SESSION" 2>/dev/null && \
+        die "session '$SESSION' exists. Kill it: tmux kill-session -t $SESSION"
+else
+    _n=""; for nm in "${NAMES[@]}"; do _n="${_n:+${_n}-}${nm}"; done
+    SESSION="aimux-${_n}-$(date +%y%m%d-%H%M%S)"
+    tmux has-session -t "$SESSION" 2>/dev/null && \
+        die "session '$SESSION' exists. Kill it: tmux kill-session -t $SESSION"
+fi
+
+# Per-session isolation (all exported BEFORE new-session so every pane — the
+# dispatcher AND the agents — inherits them):
+#   AIMUX_SESSION  -> aimux scopes pane routing to THIS session only, so panes
+#                     of other sessions never match (no cross-session delivery).
+#   AIMUX_STATE    -> this session's own queue + dispatch lock, so each session
+#                     runs its own dispatcher without fighting over one lock.
+#   TMPDIR         -> in-project scratch (avoids /tmp permission prompts).
+export AIMUX_SESSION="$SESSION"
+export AIMUX_STATE="$PROJECT_DIR/AIMemory/.aimux/$SESSION"
+mkdir -p "$AIMUX_STATE"
+# Record this launch's session name so lifecycle wrappers (`aimux shell`) can
+# find the session they created and offer `down --yes` after detach.
+printf '%s\n' "$SESSION" > "$PROJECT_DIR/AIMemory/.aimux/last-session"
+# Save the roster + per-pane CLI session ids so `aimux-up continue` can rebuild
+# this exact team and resume each conversation. Written at launch only (INITS
+# still holds BASE init files here; briefs are regenerated on continue).
+if [ "$MODE" = launch ]; then
+    _mf="$(write_manifest)"; blu "Saved session manifest: $_mf"
+fi
+mkdir -p "$PROJECT_DIR/AIMemory/tmp"
+export TMPDIR="$PROJECT_DIR/AIMemory/tmp"
+
+# ── generate per-agent SESSION BRIEFS (role-appropriate, committed files left
+# untouched) ─────────────────────────────────────────────────────────────────
+# Each pane reads its OWN brief first: the manager (pane 0) gets the manager
+# brief, every worker gets the worker brief. Briefs are rendered from the
+# committed templates under AIMemory/briefs/ into this session's state dir, with
+# a header pinning the pane's role/CLI. The pane's @awm_init_file (INITS) is then
+# pointed at the generated brief, so onboarding tells it to read that — this is
+# what lets ANY CLI run as manager or worker without editing CLAUDE.md/AGENTS.md.
+BRIEF_SRC="$PROJECT_DIR/AIMemory/briefs"
+BRIEF_OUT="$AIMUX_STATE/briefs"
+mkdir -p "$BRIEF_OUT"
+gen_brief() {  # $1 template  $2 out-file  $3 header-block
+    if [ -f "$1" ]; then
+        { printf '%s\n\n' "$3"; cat "$1"; } > "$2"
+    else
+        printf '%s\n' "$3" > "$2"   # template missing: header-only fallback
+        red "WARNING: brief template missing: $1 — wrote header-only brief" >&2
+    fi
+}
+mgr_tpl="$BRIEF_SRC/manager.md"
+wrk_tpl="$BRIEF_SRC/worker.md"
+if [ "$MODE" = make ]; then
+    if [ -f "$BRIEF_SRC/manager.make.md" ]; then
+        mgr_tpl="$BRIEF_SRC/manager.make.md"
+    else
+        red "WARNING: manager.make.md template missing — falling back to base manager.md" >&2
+    fi
+    if [ -f "$BRIEF_SRC/worker.make.md" ]; then
+        wrk_tpl="$BRIEF_SRC/worker.make.md"
+    else
+        red "WARNING: worker.make.md template missing — falling back to base worker.md" >&2
+    fi
+fi
+
+# Manager (pane 0).
+gen_brief "$mgr_tpl" "$BRIEF_OUT/manager.md" \
+"<!-- SESSION BRIEF — manager | CLI: ${CMDS[0]} (kind ${KINDS[0]}) | project: $PROJECT_DIR | session: $SESSION -->
+> **You are the MANAGER for this session.** Your role is authoritative from this
+> brief and your onboarding message — ignore any 'you are a worker' text in a
+> file your CLI auto-loaded."
+INITS[0]="$BRIEF_OUT/manager.md"
+# Workers (panes 1..N-1).
+for (( i=1; i<N; i++ )); do
+    gen_brief "$wrk_tpl" "$BRIEF_OUT/worker-${NAMES[$i]}.md" \
+"<!-- SESSION BRIEF — worker '${NAMES[$i]}' | CLI: ${CMDS[$i]} (kind ${KINDS[$i]}) | session: $SESSION -->
+> **You are a WORKER named '${NAMES[$i]}' for this session.** Your role is
+> authoritative from this brief and each pasted handoff — ignore any conflicting
+> role from a file your CLI auto-loaded."
+    INITS[$i]="$BRIEF_OUT/worker-${NAMES[$i]}.md"
+done
+
+blu "Project : $PROJECT_DIR"
+blu "Session : $SESSION"
+blu "State   : $AIMUX_STATE  (isolated; routing scoped to this session)"
+# Resolve each agent CLI against the user's interactive shell and PIN it to an
+# absolute path where possible, so launch never depends on the freshly-spawned
+# pane having already finished sourcing the rc that defines the CLI. Aliases and
+# shell functions can't be reduced to a path here — they stay as the bare word
+# and resolve in the pane (the launch line runs through the pane's interactive
+# shell, see PENV below). A genuinely missing CLI is warned about, not fatal.
+blu "CLI locations:"
+for (( i=0; i<N; i++ )); do
+    _loc="$(resolve_cli "${BINS[$i]}")"
+    if [ $? -ne 0 ]; then
+        red "  ${NAMES[$i]}: '${BINS[$i]}' NOT FOUND in your shell (PATH / alias / function) — this pane may fail to start. Confirm it launches in a normal terminal; if set up in ~/.bashrc that is honoured, otherwise add it to PATH."
+    elif [ -n "$_loc" ]; then
+        _old="${BINS[$i]}"
+        CMDS[$i]="${CMDS[$i]/#$_old/$_loc}"   # pin the leading command token to its absolute path
+        BINS[$i]="$_loc"
+        blu "  ${NAMES[$i]}: $_old -> $_loc"
+    else
+        blu "  ${NAMES[$i]}: ${BINS[$i]} (alias/function in your shell — resolved at launch in the pane)"
+    fi
+done
+
+# ── build the window: manager + dispatcher on the left, workers on the right ─
+tmux new-session -d -s "$SESSION" -c "$PROJECT_DIR"
+TOP="$(tmux display-message -t "${SESSION}:0" -p '#{pane_id}')"   # the manager pane
+
+# Agent panes. Each agent splits the PREVIOUS agent's pane:
+#   split=h -> new column to the right;  split=v -> stacked below.
+# The first chosen worker splits the manager (h) to open the right column, then
+# the rest stack under it (v) — so the whole right column is the workers'.
+declare -a PANES=("$TOP")
+for (( i=1; i<N; i++ )); do
+    case "${SPLITS[$i]}" in
+        v|V) flag="-v" ;;     # stack below the previous agent pane
+        *)   flag="-h" ;;     # new column to the right
+    esac
+    new="$(tmux split-window $flag -d -P -F '#{pane_id}' -t "${PANES[$((i-1))]}" -c "$PROJECT_DIR")"
+    PANES+=("$new")
+done
+
+# Dispatcher pane lives UNDER the manager (bottom of the left column), so it
+# does not eat into the workers' right column. Split the manager pane (TOP)
+# vertically, then pin its height to ~DISPATCH_PANE_HEIGHT% of the window.
+DISP="$(tmux split-window -v -p "$DISPATCH_PANE_HEIGHT" -d -P -F '#{pane_id}' \
+        -t "$TOP" -c "$PROJECT_DIR")"
+win_h="$(tmux display-message -t "$DISP" -p '#{window_height}')"
+disp_h=$(( win_h * DISPATCH_PANE_HEIGHT / 100 ))
+[ "$disp_h" -lt 3 ] && disp_h=3
+tmux resize-pane -t "$DISP" -y "$disp_h" 2>/dev/null || true
+
+# Distribute the worker panes evenly within each column they stack in (the
+# default roster stacks all workers in the right column). Grouping by column
+# (pane_left) keeps the manager+dispatcher left column untouched.
+if [ "$N" -gt 2 ]; then
+    declare -A _col
+    for (( i=1; i<N; i++ )); do
+        _left="$(tmux display-message -t "${PANES[$i]}" -p '#{pane_left}')"
+        _col[$_left]="${_col[$_left]:-} ${PANES[$i]}"
+    done
+    for _left in "${!_col[@]}"; do
+        read -ra _grp <<< "${_col[$_left]}"
+        _cnt=${#_grp[@]}
+        [ "$_cnt" -gt 1 ] || continue
+        _each=$(( win_h / _cnt ))
+        # resize every pane but the last (top->bottom); the last absorbs the remainder
+        for (( j=0; j<_cnt-1; j++ )); do
+            tmux resize-pane -t "${_grp[$j]}" -y "$_each" 2>/dev/null || true
+        done
+    done
+fi
+
+# Label every pane (name + kind + init-file).
+for (( i=0; i<N; i++ )); do
+    name_pane "${PANES[$i]}" "${NAMES[$i]}" "${KINDS[$i]}" "${INITS[$i]}"
+done
+name_pane "$DISP" "dispatch" "aimux"
+
+grn "Panes:"
+for (( i=0; i<N; i++ )); do
+    printf '  %-12s %-6s  reads %-10s  split=%-2s %s\n' \
+        "${NAMES[$i]}" "$( [ $i = 0 ] && echo manager || echo worker )" \
+        "${INITS[$i]}" "$( [ $i = 0 ] && echo - || echo "${SPLITS[$i]}" )" "${PANES[$i]}"
+done
+printf '  %-12s %-6s  %s\n' "dispatch" "daemon" "$DISP"
+
+# Per-pane env prefix. We inject these on the launch line itself (not via
+# `export` before new-session) because if a tmux server is ALREADY running,
+# new-session attaches to it and panes inherit the OLD server env — our
+# exports would never reach them. Prefixing the command guarantees every pane
+# (dispatcher + agents) gets this session's isolated state + scoped routing.
+#
+# For the AGENT launch we use this as a SHELL variable-assignment prefix
+# (`VAR=val claude …`), NOT the external `env` command. `env` does an execvp and
+# can only run a real file on PATH — it cannot launch a `claude` that the user
+# set up in ~/.bashrc as an alias or shell function, which is why those configs
+# failed to start. A bare assignment prefix is parsed by the pane's interactive
+# shell, so it still expands aliases/functions and uses the rc's PATH, while
+# exporting these vars to the CLI exactly like `env` would. CLIs that DO resolve
+# to a disk path were already pinned to their absolute path above, so both forms
+# work; the dispatcher keeps `env` since $AIMUX is always an absolute file path.
+#
+# AIMUX_MEM_DIR is pinned here too — NOT just AIMUX_STATE. aimux derives
+# AIMUX_WORKLOG (and AIMUX_TMP) from AIMUX_MEM_DIR, which otherwise defaults to
+# the directory of whichever `aimux` BINARY a pane invokes ($_self/..). When a
+# project nests inside another (e.g. paper/ inside its parent), both have an
+# identical aimux copy, so a worker whose cwd drifted to the parent would log to
+# the PARENT's work.log while its queue stayed in THIS session — a split-brain
+# where the reply file lands here but the work.log line leaks next door. Pinning
+# the mem dir makes the worklog follow the session, exactly like the state dir.
+PENV="TMPDIR='$PROJECT_DIR/AIMemory/tmp' AIMUX_MEM_DIR='$PROJECT_DIR/AIMemory' AIMUX_STATE='$AIMUX_STATE' AIMUX_SESSION='$SESSION'"
+
+# ── start the dispatcher first, so it's ready before agents enqueue ─────────
+# Respawn wrapper (NOT exec): if the dispatcher ever dies unexpectedly
+# (nonzero exit — script bug, kill -9, tmux hiccup), the pane survives, shows
+# the exit code, and restarts it after 2s instead of silently closing and
+# stalling the whole queue. A clean signal stop (Ctrl-C / `dispatch --force`
+# takeover / `down`) exits 0 and leaves the loop, dropping back to the shell.
+blu "Starting dispatcher..."
+send "$DISP" "while true; do env $PENV '$AIMUX' dispatch; rc=\$?; [ \"\$rc\" -eq 0 ] && break; echo \"dispatcher exited rc=\$rc — restarting in 2s (Ctrl-C twice to stop)\"; sleep 2; done"
+
+# ── launch agent CLIs ───────────────────────────────────────────────────────
+blu "Launching agent CLIs..."
+for (( i=0; i<N; i++ )); do
+    runcmd="${CMDS[$i]}"
+    if [ "$MODE" = continue ]; then
+        if [ "${KINDS[$i]}" = codex ]; then
+            runcmd="${BINS[$i]} resume --last"          # codex resumes via subcommand
+            red "  note: ${NAMES[$i]} (codex) resumes its LAST session for this project bucket — if this project is nested under / a sibling of another, verify the pane shows THIS project." >&2
+        elif [ "${KINDS[$i]}" = opencode ]; then
+            # Pin to the exact session for PROJECT_DIR — never a bare --continue,
+            # which would resume a nested/sibling project sharing the git-root bucket.
+            _sid="$(opencode_session_for_dir "$PROJECT_DIR")"
+            if [ -n "$_sid" ]; then
+                runcmd="$runcmd --session $_sid"
+            else
+                runcmd="$runcmd --continue"
+                red "  note: ${NAMES[$i]} (opencode) — no saved session recorded for $PROJECT_DIR; falling back to --continue, which may resume a sibling/nested project. Verify the pane." >&2
+            fi
+        else
+            _rf="$(resume_session_flags "${KINDS[$i]}" "${UUIDS[$i]}")"
+            runcmd="$runcmd${_rf:+ $_rf}"
+            [ "${KINDS[$i]}" = antigravity ] && red "  note: ${NAMES[$i]} (antigravity) resumes most-recent via --continue — if this project is nested under / a sibling of another, verify the pane shows THIS project." >&2
+        fi
+    else
+        _lf="$(launch_session_flags "${KINDS[$i]}" "${UUIDS[$i]}")"
+        runcmd="$runcmd${_lf:+ $_lf}"                   # persist under a known id
+    fi
+    send "${PANES[$i]}" "$PENV $runcmd"
+done
+blu "Waiting ${CLI_WARMUP}s for CLIs to initialise..."
+sleep "$CLI_WARMUP"
+
+# ── onboard agents (no full-repo install — AIMemory is already here) ────────
+# Each agent is told its role + ITS OWN primary file so panes never confuse
+# who is the manager and who is a worker.
+MANAGER="${NAMES[0]}"
+if [ "$MODE" = continue ]; then
+    # Agents resumed their OWN prior conversations (full role + project context is
+    # already loaded). Just nudge them back into the loop — don't re-paste briefs.
+    send "${PANES[0]}" "RESUMED SESSION — your prior context as MANAGER is loaded (same project, same team, same rules as before). Re-scan the tail of AIMemory/work.log and run 'AIMemory/bin/aimux status' for any worker return you had not yet processed, then continue exactly where you left off."
+    for (( i=1; i<N; i++ )); do
+        send "${PANES[$i]}" "RESUMED SESSION — your prior context as WORKER '${NAMES[$i]}' is loaded. Keep waiting for handoffs pasted into this pane; return each result with 'AIMemory/bin/aimux enqueue --to ${MANAGER} --type response --reply-to <req-id> --handoff <your-report>'."
+    done
+else
+MGR_ONBOARD_INTRO="ROLE: MANAGER (you, and only you). Read '${INITS[0]}' FIRST as your primary project brief, then PROJECT.md, AIMemory/PROTOCOL.md and AIMemory/tmux-handoff.md (esp. the manager responsibilities under Roles). You alone talk to the human and own the project end to end."
+if [ "$MODE" = make ]; then
+    MGR_ONBOARD_INTRO="ROLE: MANAGER (you, and only you). Read '${INITS[0]}' FIRST as your primary project brief. The project IS make_Harness — read DESIGN.md + HARNESS-CHANGELOG.md; follow T-series + SemVer VERSION; verify via smoke.sh + make-dist. Read AIMemory/PROTOCOL.md and AIMemory/tmux-handoff.md (esp. the manager responsibilities under Roles). You alone talk to the human and own the project end to end."
+fi
+send "${PANES[0]}" "${MGR_ONBOARD_INTRO} PLAN BY DIVERGE-THEN-CONVERGE before building (for non-trivial work): (1) FIRST confirm and clarify the user's requirements with the user — scope, constraints, acceptance criteria; (2) write the confirmed requirements to a file, then have EVERYONE independently draft their OWN plan in PARALLEL: send that requirements file to each worker as a PROPOSE handoff ('AIMemory/bin/aimux enqueue --to <pane> --handoff <requirements-file> --roles PROPOSE') asking each to propose its own approach (think freely, do NOT implement yet), and at the same time draft your OWN plan independently; (3) collect all proposals (workers' + yours), ANALYZE the strengths/weaknesses of the ideas in each, and synthesize the BEST FINAL plan by combining the good parts (note which idea came from where and the tradeoffs). The goal is divergent independent thinking then convergence on the best plan — not rubber-stamping your draft. Only AFTER the final plan do you decompose and dispatch implementation. MAXIMIZE PARALLELISM when decomposing: split by DEPENDENCY, not by sequence — 'step 1 then 2 then 3' is narrative order, not a dependency graph; serialize only units that truly consume another unit's output. ONE unit per handoff (never bundle 'do A then B then C' into one worker while others idle), dispatch ALL currently-unblocked units across idle capable workers at once, and on every worker return immediately dispatch whatever it unblocked — an idle worker while ready units exist is a routing failure (if everything looks serial, split harder: impl vs test-harness vs docs, per-module; verification of a finished unit runs on one worker WHILE another builds the next). Orchestrate, don't do the work yourself — this explicitly includes INTEGRATION, TESTING and VERIFICATION (even of the finished/assembled build). Verification is WORK, not judgment: when something needs testing/verifying and a worker is idle, do NOT read the code and verify it yourself — create a VERIFY/TEST unit and hand it to an idle capable worker (prefer the strongest, e.g. opencode): 'write AND RUN an automated/headless test or harness that checks <acceptance criteria>, then report pass/fail with concrete evidence (commands, output, numbers)'. Plan an explicit integration/verify unit in your decomposition. Reserve for yourself ONLY: decomposing the work, deciding ACCEPT vs RE-ROUTE from the worker's returned EVIDENCE, and assembling the final deliverable. 'Judgment' = reviewing that evidence, NOT running the checks yourself. If you catch yourself reading source to test behavior while workers sit idle, stop and delegate it. Before assigning, read AIMemory/agents.md (per-agent strengths & known failure modes) and run 'AIMemory/bin/aimux agents' (live idle/busy + what each is handling); match each unit to a capable IDLE agent and dispatch independent units in parallel via 'AIMemory/bin/aimux enqueue --to <pane> --handoff <file> --roles <...>'. Routing constraints: qwen is a weak fully-local model — give it ONLY low-stakes simple work (research/info-gathering, simple shell scripts, small mechanical tasks); send MAIN/complex work to opencode or antigravity, never qwen. Data sensitivity overrides capability: personal/sensitive/confidential data must stay local, so route those units to qwen ONLY and NEVER paste such data into the cloud agents (opencode/antigravity/claude). When a worker fails or returns poor/empty output: do NOT abandon it — diagnose the cause (read its pane + work.log + any BLOCKER it returned; e.g. qwen often only PLAN edits unless 'accept edits' mode is on, or narrate tool calls instead of running them), re-issue adapted to that agent (smaller scope, single step, 'apply/write now', 'actually run the command'), retry ONCE, and only then re-route the unit to another idle capable agent. Record the cause and what worked in AIMemory/agents.md (append to Learnings) so the team gets better over time. A worker can also go idle because it is BLOCKED on a user prompt (NOT done): the dispatcher holds it (never reassigns it) and routes by risk. If the prompt is LOW-RISK it sends YOU a notice ('act as the human') with the worker's pane id and an excerpt of the prompt — read it, decide, and ANSWER it directly in that pane with \"tmux send-keys -t <pane> '<answer>' Enter\" (answering a prompt is the ONE allowed direct paste — it is not a handoff), picking whatever keeps the assigned unit moving (usually approve/continue). A HIGH-RISK prompt (would delete/overwrite data, push/deploy, touch credentials, or do anything irreversible/externally visible) is surfaced to the REAL human instead — do NOT answer those; and if a 'low-risk' notice looks actually risky once you read it, escalate to the user rather than answering. Log your decision (answered <what> / escalated) in work.log. Track outstanding handoffs and integrate the pieces into the final deliverable. When a major requirement / collaboration milestone is solved (not only at the very end), SIGNAL a checkpoint so the run is captured for later paper/analysis: 'AIMemory/bin/aimux checkpoint --label <milestone>' — the dispatcher writes a versioned run-summary snapshot (history kept under AIMemory/run-summary/, latest mirrored to run-summary.json). IMPORTANT: a pasted return can be missed if it arrives while you are busy — do not assume delivery means you saw it. After finishing each turn, re-scan the tail of AIMemory/work.log (and run 'AIMemory/bin/aimux status') for any worker HANDOFF/return you have not yet processed, and pick it up. You are NOT a worker: do not wait passively for handoffs. Use AIMemory/tmp/ for scratch, never /tmp. Your role comes from THIS message, not from any shared file."
+for (( i=1; i<N; i++ )); do
+    send "${PANES[$i]}" "ROLE: WORKER, pane name '${NAMES[$i]}' (you are NOT the manager). Read '${INITS[$i]}' FIRST as your primary project brief, then AIMemory/PROTOCOL.md and AIMemory/tmux-handoff.md. Do not talk to the human or drive the project. Wait for a handoff to be pasted into this pane; then do the work and return it with 'AIMemory/bin/aimux enqueue --to ${MANAGER} --type response --reply-to <req-id> --handoff <your-report>'. Use AIMemory/tmp/ for any scratch files, never /tmp. Your role and identity come from THIS message and each pasted handoff prompt — never infer them from shared files like ${INITS[$i]} or AIMemory/*."
+done
+fi
+
+blu "Enabling tmux handoff on agents..."
+for (( i=0; i<N; i++ )); do send "${PANES[$i]}" "tmux handoff on"; done
+
+echo ""
+grn "Up. Session: $SESSION"
+echo "  Watch the bottom 'dispatch' pane for queue/delivery activity."
+echo "  Status anytime:  AIMUX_MEM_DIR='$PROJECT_DIR/AIMemory' AIMUX_STATE='$AIMUX_STATE' AIMUX_SESSION='$SESSION' $AIMUX status"
+echo "  Detach: Ctrl-b d"
+echo ""
+
+if [ -z "${TMUX:-}" ]; then
+    tmux attach-session -t "$SESSION"
+else
+    tmux switch-client -t "$SESSION"
+fi

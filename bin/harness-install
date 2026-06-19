@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# harness-install — fresh-dir full install from a harness release.
+#
+# Lays down BOTH managed and seed paths from the latest release, writes
+# .harness/source, and refuses to run in a non-empty directory unless --force.
+#
+# Dependencies: bash, coreutils, unzip, curl (or gh). No jq.
+#
+# Test hook: HARNESS_RELEASE_ZIP env var or --zip flag.
+#
+# Usage:
+#   bin/harness-install [--repo owner/repo] [--zip <path>] [--force] <target-dir>
+
+set -euo pipefail
+
+# --- self-path ---------------------------------------------------------------
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_ROOT="$(cd "$SELF/.." && pwd)"
+MANIFEST="$HARNESS_ROOT/harness-manifest.json"
+SOURCE_TEMPLATE="$HARNESS_ROOT/.harness/source"
+
+HARNESS_RELEASE_ZIP="${HARNESS_RELEASE_ZIP:-}"
+FORCE=0
+
+# --- helpers ----------------------------------------------------------------
+warn() { printf '\033[33mWARN\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[31mERROR\033[0m %s\n' "$*" >&2; exit 1; }
+info() { printf '\033[36m%s\033[0m %s\n' "$*"; }
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options] <target-dir>
+
+Install a fresh harness into <target-dir>. The directory must be empty unless
+--force is given.
+
+Options:
+  --repo owner/repo  Override the upstream repository slug
+  --zip <path>       Use a local zip file instead of fetching from GitHub
+  --force            Proceed even if target directory is not empty
+  -h, --help         Show this help
+
+Environment:
+  HARNESS_REPO          Repository slug (owner/name)
+  HARNESS_RELEASE_ZIP   Path to a local zip file (test hook, same as --zip)
+EOF
+  exit 0
+}
+
+# --- resolve repo slug -------------------------------------------------------
+resolve_repo() {
+  local repo="${HARNESS_REPO:-}"
+  if [ -n "${HARNESS_REPO_OVERRIDE:-}" ]; then
+    repo="$HARNESS_REPO_OVERRIDE"
+  fi
+  if [ -z "$repo" ] && [ -f "$SOURCE_TEMPLATE" ]; then
+    repo="$(sed -n 's/^repo=//p' "$SOURCE_TEMPLATE" 2>/dev/null || true)"
+  fi
+  if [ -z "$repo" ] && command -v gh &>/dev/null; then
+    repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  fi
+  if [ -z "$repo" ]; then
+    die "Cannot determine repository. Set HARNESS_REPO."
+  fi
+  printf '%s' "$repo"
+}
+
+# --- parse args --------------------------------------------------------------
+ARGS=$(getopt -o h --long help,repo:,zip:,force -n "$(basename "$0")" -- "$@") || exit 1
+eval set -- "$ARGS"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo)  HARNESS_REPO_OVERRIDE="$2"; shift 2 ;;
+    --zip)   HARNESS_RELEASE_ZIP="$(cd "$(dirname "$2")" 2>/dev/null && pwd)/$(basename "$2")"
+             shift 2 ;;
+    --force) FORCE=1; shift ;;
+    -h|--help) usage ;;
+    --) shift; break ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+[ $# -ge 1 ] || die "Missing target directory. Usage: $(basename "$0") [options] <target-dir>"
+TARGET_DIR="$1"
+shift
+
+# --- check target dir --------------------------------------------------------
+if [ -d "$TARGET_DIR" ]; then
+  contents="$(ls -A "$TARGET_DIR" 2>/dev/null)"
+  if [ -n "$contents" ] && [ "$FORCE" -ne 1 ]; then
+    die "Target directory is not empty: $TARGET_DIR. Use --force to override."
+  fi
+else
+  mkdir -p "$TARGET_DIR"
+fi
+
+TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+
+# --- check manifest ----------------------------------------------------------
+[ -f "$MANIFEST" ] || die "Manifest not found: $MANIFEST"
+
+# --- resolve repo ------------------------------------------------------------
+REPO="$(resolve_repo)"
+
+# --- get release zip ---------------------------------------------------------
+TMPDIR="$(mktemp -d "$HARNESS_ROOT/AIMemory/tmp/harness-install.XXXXXX")"
+cleanup() { rm -rf "$TMPDIR"; }
+trap cleanup EXIT
+
+ZIP_FILE=""
+RELEASE_VERSION=""
+
+if [ -n "$HARNESS_RELEASE_ZIP" ]; then
+  [ -f "$HARNESS_RELEASE_ZIP" ] || die "Local zip not found: $HARNESS_RELEASE_ZIP"
+  ZIP_FILE="$HARNESS_RELEASE_ZIP"
+  RELEASE_VERSION="$(basename "$ZIP_FILE" | sed -n 's/.*make_Harness-v\([^-]*\)-.*/\1/p')"
+  [ -z "$RELEASE_VERSION" ] && RELEASE_VERSION="local-test"
+  info "Using local zip: $ZIP_FILE (version=$RELEASE_VERSION)"
+else
+  info "Fetching latest release from $REPO ..."
+  if command -v gh &>/dev/null; then
+    gh release download --repo "$REPO" --pattern '*.zip' --dir "$TMPDIR" 2>/dev/null \
+      || die "gh release download failed"
+  else
+    local_json="$TMPDIR/release.json"
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" -o "$local_json" \
+      || die "curl failed to fetch release info"
+    zip_url="$(grep -E '"browser_download_url".*\.zip"' "$local_json" \
+      | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/' | head -1)"
+    [ -n "$zip_url" ] || die "No zip asset found in latest release"
+    curl -fsSL -o "$TMPDIR/release.zip" "$zip_url" || die "curl failed to download zip"
+    ZIP_FILE="$TMPDIR/release.zip"
+  fi
+  if [ -z "$ZIP_FILE" ]; then
+    ZIP_FILE="$(ls "$TMPDIR"/*.zip 2>/dev/null | head -1)"
+  fi
+  RELEASE_VERSION="$(basename "$ZIP_FILE" | sed -n 's/.*make_Harness-v\([^-]*\)-.*/\1/p')"
+  [ -z "$RELEASE_VERSION" ] && RELEASE_VERSION="unknown"
+fi
+
+[ -f "$ZIP_FILE" ] || die "No zip file available"
+
+# --- unzip -------------------------------------------------------------------
+UNZIP_DIR="$TMPDIR/contents"
+mkdir -p "$UNZIP_DIR"
+unzip -q "$ZIP_FILE" -d "$UNZIP_DIR" || die "Failed to unzip release"
+
+ZIP_TOP=""
+for item in "$UNZIP_DIR"/*/; do
+  [ -d "$item" ] && ZIP_TOP="$item" && break
+done
+[ -z "$ZIP_TOP" ] && ZIP_TOP="$UNZIP_DIR/"
+
+# --- read manifest -----------------------------------------------------------
+parse_manifest_list() {
+  local key="$1"
+  python3 -c "
+import json,sys
+with open('$MANIFEST') as f:
+    d=json.load(f)
+for p in d.get('$key',[]):
+    print(p)
+" 2>/dev/null || {
+    sed -n "/\"$key\":/,/\]/p" "$MANIFEST" | grep '"' | sed 's/.*"\(.*\)".*/\1/' | grep -v '^\[' || true
+  }
+}
+
+mapfile -t MANAGED < <(parse_manifest_list "managed")
+mapfile -t SEED < <(parse_manifest_list "seed")
+
+# --- install (both managed + seed) -------------------------------------------
+echo "Installing harness into: $TARGET_DIR"
+echo ""
+
+INSTALLED=0
+SKIP_COUNT=0
+
+install_path() {
+  local src="$1" dst="$2"
+  local dst_full="$TARGET_DIR/$dst"
+  local src_full="$ZIP_TOP/$src"
+
+  if [ ! -e "$src_full" ]; then
+    echo "  [SKIP]  source missing: $src"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+    return
+  fi
+
+  if [ -d "$src_full" ]; then
+    mkdir -p "$dst_full"
+    cp -a "$src_full/." "$dst_full/"
+    echo "  [DIR]   ${dst%/}/"
+  else
+    mkdir -p "$(dirname "$dst_full")"
+    cp -a "$src_full" "$dst_full"
+    echo "  [FILE]  $dst"
+  fi
+  INSTALLED=$((INSTALLED + 1))
+}
+
+for p in "${MANAGED[@]}"; do
+  install_path "$p" "$p"
+done
+for p in "${SEED[@]}"; do
+  install_path "$p" "$p"
+done
+
+# --- write .harness/source ---------------------------------------------------
+mkdir -p "$TARGET_DIR/.harness"
+cat > "$TARGET_DIR/.harness/source" <<EOF
+repo=$REPO
+version=$RELEASE_VERSION
+installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+EOF
+
+echo ""
+echo "=== Install complete ==="
+echo "Repository: $REPO"
+echo "Version: $RELEASE_VERSION"
+echo "Target: $TARGET_DIR"
+echo "Files installed: $INSTALLED"
+echo "Skipped (missing source): $SKIP_COUNT"
+echo ".harness/source written."

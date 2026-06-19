@@ -1,0 +1,1628 @@
+#!/usr/bin/env bash
+# aimux — AIMemory tmux handoff dispatcher
+#
+# A single-dispatcher queue that delivers AICP handoffs between agent panes
+# without doorbell collisions. Agents never paste into each other directly:
+# they enqueue a request; one dispatcher rings a pane's doorbell only when
+# that pane is idle and has no in-flight delivery.
+#
+# AICP (AIMemory/PROTOCOL.md) stays the source of truth. This script is just
+# the transport. See AIMemory/tmux-handoff.md for the full flow.
+#
+# Dependencies: tmux + coreutils only (no jq). No hardcoded project paths.
+#
+# A pane blocked on a USER prompt (permission/yes-no/choice) is "idle waiting for
+# the user", not finished: it is held (not released/notified) and gets no new
+# delivery, distinct from "idle after finishing". Tune AIMUX_WAIT_PATTERN per CLI.
+#
+# Usage:
+#   aimux panes
+#   aimux agents                       # live idle/busy/waiting + what each handles
+#   aimux name <name> [--kind <kind>] [--pane <id>]
+#   aimux enqueue --to <name> --handoff <path> [--roles R[+R...]] \
+#                 [--from <pane>] [--type request|response] \
+#                 [--reply-to <req-id>] [--priority N]
+#   aimux dispatch [--interval S] [--once] [--force]
+#   aimux status
+#   aimux report [--json] [--write]    # structured run-summary (citable metadata)
+#   aimux checkpoint [--label <name>]  # snapshot a versioned run-summary at a milestone
+#   aimux send-test --to <name> [--from <pane>]
+#   aimux cancel <req-id>
+#   aimux resolve <req-id> [--note <t>]  # manager verified out-of-band: close + drop follow-ups
+#   aimux shell [project-dir]          # one command for the whole lifecycle: up + attach,
+#                                      # then on detach offer finalize+terminate (down --yes)
+#   aimux down [--yes] [--purge]       # finalize + kill THIS session's panes
+#   aimux skills-sync                  # install missing skills from skills-lock.json
+
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Paths & config (all overridable via env; nothing hardcoded to a project).
+# ---------------------------------------------------------------------------
+_self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AIMUX_MEM_DIR="${AIMUX_MEM_DIR:-$(cd "$_self/.." && pwd)}"     # the AIMemory dir
+AIMUX_STATE="${AIMUX_STATE:-$AIMUX_MEM_DIR/.aimux}"            # runtime queue state
+AIMUX_WORKLOG="${AIMUX_WORKLOG:-$AIMUX_MEM_DIR/work.log}"
+AIMUX_TMP="${AIMUX_TMP:-$AIMUX_MEM_DIR/tmp}"                   # scratch dir (inside
+                                                              # the project, so writes
+                                                              # don't trip /tmp prompts)
+
+AIMUX_DISPATCH_INTERVAL="${AIMUX_DISPATCH_INTERVAL:-2}"       # seconds between cycles
+AIMUX_IDLE_SAMPLE_SECS="${AIMUX_IDLE_SAMPLE_SECS:-1.2}"       # screen-stable sample gap
+AIMUX_ENTER_SETTLE="${AIMUX_ENTER_SETTLE:-0.4}"              # pause around the submit
+                                                             # Enter (TUIs ingest a
+                                                             # bracketed paste async —
+                                                             # an instant Enter can be
+                                                             # swallowed with the paste)
+AIMUX_ENTER_SETTLE_OPENCODE="${AIMUX_ENTER_SETTLE_OPENCODE:-0.9}"  # opencode renders the
+                                                             # Enter-submit slower than the
+                                                             # default window, so the screen-
+                                                             # change check fired before the
+                                                             # submit showed and logged a
+                                                             # FALSE RETRY/STUCK (it had in
+                                                             # fact submitted). A longer per-
+                                                             # kind settle makes the change
+                                                             # detectable. (see enter_settle_for)
+AIMUX_ENTER_TRIES="${AIMUX_ENTER_TRIES:-3}"                  # max Enter presses per
+                                                             # delivery until the screen
+                                                             # visibly changes (submit
+                                                             # verification)
+AIMUX_CAPTURE_LINES="${AIMUX_CAPTURE_LINES:-40}"             # tail lines used for idle hash
+AIMUX_MIN_INFLIGHT_SECS="${AIMUX_MIN_INFLIGHT_SECS:-4}"      # grace before any release
+AIMUX_RELEASE_IDLE_CYCLES="${AIMUX_RELEASE_IDLE_CYCLES:-3}"  # consecutive idle checks
+                                                            # required before releasing
+                                                            # (a busy pane resets it) —
+                                                            # prevents a momentary stable
+                                                            # frame from freeing the lock
+AIMUX_WAIT_NOTICE_CYCLES="${AIMUX_WAIT_NOTICE_CYCLES:-2}"   # consecutive 'waiting' checks
+                                                            # before the manager is asked
+                                                            # to answer a LOW-RISK prompt —
+                                                            # a grace window so the REAL
+                                                            # user can answer it first
+                                                            # (high-risk is surfaced at
+                                                            # once; this only defers the
+                                                            # manager-answer path)
+AIMUX_INFLIGHT_TIMEOUT="${AIMUX_INFLIGHT_TIMEOUT:-900}"      # hard release timeout (15m)
+AIMUX_INFLIGHT_TIMEOUT_MAX="${AIMUX_INFLIGHT_TIMEOUT_MAX:-2700}"  # ceiling (45m) for a pane
+                                                            # that is STILL BUSY at the
+                                                            # timeout — a long single turn
+                                                            # (big doc conversion / build)
+                                                            # is long, not stuck, so extend
+                                                            # instead of false-releasing it
+                                                            # as 'timed out, no response'.
+                                                            # Only release once idle/blocked
+                                                            # or this ceiling is reached.
+AIMUX_WAIT_TIMEOUT="${AIMUX_WAIT_TIMEOUT:-240}"             # release a pane blocked on an
+                                                            # UNANSWERED user prompt after
+                                                            # this long (4m). Such a pane
+                                                            # never self-resolves into a
+                                                            # response — only a human/manager
+                                                            # answer clears it — so holding
+                                                            # the lock for the full inflight
+                                                            # timeout just delays re-routing.
+                                                            # On expiry it frees with a notice
+                                                            # so the manager re-routes. 0 =>
+                                                            # disabled (fall back to the hard
+                                                            # inflight timeout).
+AIMUX_MODEL_ID="${AIMUX_MODEL_ID:-aimux}"                    # log author id
+# A pane whose screen-tail matches this (case-insensitive ERE) is BLOCKED on a
+# user prompt (permission / yes-no / choice) — "idle waiting for the user", NOT
+# "idle, finished". Such a pane is never treated as done and never receives a
+# new delivery. Tune per CLI; record markers in agents.md.
+AIMUX_WAIT_PATTERN="${AIMUX_WAIT_PATTERN:-Do you want to|Yes, and don.t ask again|allow all edits|allow this|\\(y/n\\)|\\(Y/n\\)|\\[y/N\\]|\\[Y/n\\]|\\(yes/no\\)|Press Enter to|Esc to cancel|Overwrite\\?|Continue\\?|Proceed\\?|Apply this|waiting for (your|user)|approve this|grant .* permission}"
+# Among waiting panes (matched above), one whose tail ALSO matches this pattern
+# is a HIGH-RISK decision: the underlying ACTION is destructive / irreversible /
+# externally-visible / touches credentials. The dispatcher escalates it to the
+# REAL human and never asks the manager to auto-answer it. A waiting pane that
+# does NOT match is LOW-RISK: the dispatcher asks the MANAGER to act as the human
+# and answer it in place, so work keeps flowing without bothering the human.
+# Empty pattern => treat every wait as low-risk (manager handles all).
+#
+# Judge by the ACTION, not by the prompt's UI affordances. A routine permission
+# prompt offering "Yes, and don't ask again" / "always allow" / "allow all edits"
+# is NOT high-risk by itself — that option is on almost every permission prompt;
+# matching it made the dispatcher escalate ordinary approvals to the human. Only
+# an irreversible/destructive/external action behind the prompt is high-risk.
+# Tune per project.
+AIMUX_WAIT_RISK_PATTERN="${AIMUX_WAIT_RISK_PATTERN:-delete|remove |rm -rf|overwrite|drop table|truncate|format |wipe|destroy|purge|reset --hard|clean -f|force.push|git push|push to|deploy|publish|release to|production|credential|password|passwd|secret|token|api[ _-]?key|ssh key|private key|sudo |chmod 777|irreversible|permanent|cannot be undone}"
+AIMUX_SESSION="${AIMUX_SESSION:-}"                           # if set, pane routing
+                                                             # is scoped to this tmux
+                                                             # session only (so panes
+                                                             # of other sessions never
+                                                             # match)
+
+Q="$AIMUX_STATE/queue"
+INFLIGHT="$AIMUX_STATE/inflight"
+DONE="$AIMUX_STATE/done"
+FAILED="$AIMUX_STATE/failed"
+
+# ---------------------------------------------------------------------------
+# Tiny helpers
+# ---------------------------------------------------------------------------
+die()  { printf 'aimux: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'aimux: %s\n' "$*" >&2; }
+
+# --- live dispatcher view (stdout = the dispatch pane) --------------------
+# A visible activity feed so the human can watch the queue move:
+#   QUEUED (enqueued) -> DELIVER (popped to a pane) -> DONE (completed/returned).
+# Separate from work.log (the durable record). VLOG=0 disables.
+declare -A _ANN 2>/dev/null || true   # ids already announced as QUEUED
+_PP=-1; _PI=-1; _PD=-1                # previous pending/inflight/done counts
+VLOG="${AIMUX_VLOG:-1}"
+_styp() { case "$1" in request) printf req ;; response) printf resp ;; notice) printf note ;; highfive) printf hi ;; *) printf '%s' "$1" ;; esac; }
+_sid()  { printf '%s' "$1" | awk -F- '{print $2"-"$NF}'; }   # short id: HHMMSS-rand
+vlog() { [ "$VLOG" = 1 ] || return 0; printf '\033[2m%s\033[0m %s\n' "$(date +%T)" "$*"; }
+vboard() {
+  [ "$VLOG" = 1 ] || return 0
+  local p i d
+  p="$(ls -1 "$Q" 2>/dev/null | grep -c '\.req$' || true)"
+  i="$(ls -1 "$INFLIGHT" 2>/dev/null | grep -c '\.req$' || true)"
+  d="$(ls -1 "$DONE" 2>/dev/null | grep -c '\.req$' || true)"
+  if [ "$p" != "$_PP" ] || [ "$i" != "$_PI" ] || [ "$d" != "$_PD" ]; then
+    printf '\033[2m┄ p=%s i=%s d=%s ┄\033[0m\n' "$p" "$i" "$d"
+    _PP="$p"; _PI="$i"; _PD="$d"
+  fi
+}
+now()  { date +%s; }
+stamp(){ date '+%Y-%m-%d %H:%M'; }
+
+ensure_dirs() { mkdir -p "$Q" "$INFLIGHT" "$DONE" "$FAILED" "$AIMUX_TMP"; }
+
+in_tmux() { [ -n "${TMUX:-}" ] || tmux display-message -p '#{pane_id}' >/dev/null 2>&1; }
+
+# field <file> <key>  -> last value for key (append-only, last write wins)
+field() { grep "^$2: " "$1" 2>/dev/null | tail -1 | cut -d' ' -f2-; }
+set_field() { printf '%s: %s\n' "$2" "${3:-}" >> "$1"; }
+
+# Append one event to work.log atomically (single write).
+log_event() {
+  local event="$1" body="$2"
+  ensure_dirs
+  {
+    printf '\n### %s | %s | %s\n' "$(stamp)" "$AIMUX_MODEL_ID" "$event"
+    printf '%s\n' "$body"
+  } >> "$AIMUX_WORKLOG"
+}
+
+# ---------------------------------------------------------------------------
+# Pane resolution & idle detection
+# ---------------------------------------------------------------------------
+
+# List panes in the routing scope. When AIMUX_SESSION is set, only that
+# session's panes are visible — so two concurrent sessions with same-named
+# panes never cross-deliver. Otherwise the whole server is in scope.
+scope_list() {
+  if [ -n "${AIMUX_SESSION:-}" ]; then
+    tmux list-panes -s -t "$AIMUX_SESSION" -F "$1" 2>/dev/null
+  else
+    tmux list-panes -a -F "$1" 2>/dev/null
+  fi
+}
+
+# Count agent-authored events in work.log (excludes aimux's own NOTEs). Growth
+# in this between delivery and now = a real agent (worker/manager) acted on the
+# pasted prompt — the engagement signal used to detect a missed/ignored paste.
+agentlog_count() {
+  grep '^### ' "$AIMUX_WORKLOG" 2>/dev/null | grep -vc '| aimux |' 2>/dev/null || echo 0
+}
+
+# resolve_pane <query> -> pane_id on stdout (empty + nonzero if unresolved/ambiguous)
+# Accepts: %<id> | session:win.pane | @awm_pane_name | pane_title (fallback)
+# Name/title matches are restricted to AIMUX_SESSION when it is set.
+resolve_pane() {
+  local q="$1" hit count
+  case "$q" in
+    %*)
+      tmux display-message -t "$q" -p '#{pane_id}' 2>/dev/null && return 0
+      return 1 ;;
+    *:*.*|*:*)
+      # session:win.pane or window:pane location
+      tmux display-message -t "$q" -p '#{pane_id}' 2>/dev/null && return 0 ;;
+  esac
+
+  # exact @awm_pane_name, current window first then whole server
+  local win_id
+  win_id="$(tmux display-message -p '#{window_id}' 2>/dev/null || true)"
+  if [ -n "$win_id" ]; then
+    hit="$(tmux list-panes -t "$win_id" -F '#{pane_id} #{@awm_pane_name}' 2>/dev/null \
+           | awk -v n="$q" '$2==n{print $1}')"
+    [ -n "$hit" ] && [ "$(printf '%s\n' "$hit" | grep -c .)" -eq 1 ] && { printf '%s\n' "$hit"; return 0; }
+  fi
+  hit="$(scope_list '#{pane_id} #{@awm_pane_name}' \
+         | awk -v n="$q" '$2==n{print $1}')"
+  count="$(printf '%s\n' "$hit" | grep -c .)"
+  if [ -n "$hit" ] && [ "$count" -eq 1 ]; then printf '%s\n' "$hit"; return 0; fi
+  if [ "$count" -gt 1 ]; then warn "pane name '$q' is ambiguous ($count matches)"; return 1; fi
+
+  # fallback: exact pane_title, must be unique
+  hit="$(scope_list '#{pane_id}	#{pane_title}' \
+         | awk -F'\t' -v n="$q" '$2==n{print $1}')"
+  count="$(printf '%s\n' "$hit" | grep -c .)"
+  [ -n "$hit" ] && [ "$count" -eq 1 ] && { printf '%s\n' "$hit"; return 0; }
+  return 1
+}
+
+pane_alive() { tmux display-message -t "$1" -p '#{pane_id}' >/dev/null 2>&1; }
+
+tail_hash() {
+  tmux capture-pane -p -t "$1" -S "-$AIMUX_CAPTURE_LINES" 2>/dev/null | cksum | cut -d' ' -f1
+}
+
+# pane_idle <pane_id> -> 0 if screen tail is stable across one sample gap
+pane_idle() {
+  local p="$1" a b
+  a="$(tail_hash "$p")"
+  [ -z "$a" ] && return 1
+  sleep "$AIMUX_IDLE_SAMPLE_SECS"
+  b="$(tail_hash "$p")"
+  [ "$a" = "$b" ]
+}
+
+# Visible screen ONLY (no scrollback) — prompt detection must never look at
+# history: an already-answered prompt ("Esc to cancel", "(y/n)") scrolled into
+# scrollback would otherwise read as waiting forever, wait-holding the pane and
+# stalling every delivery to it. A prompt the pane is blocked on RIGHT NOW is,
+# by definition, on the visible screen. (tail_hash keeps -S: for the idle
+# stability hash, including scrollback is harmless.)
+visible_screen() {
+  tmux capture-pane -p -t "$1" 2>/dev/null
+}
+
+# pane_waiting <pane_id> -> 0 if the pane is BLOCKED on a user prompt (permission
+# / yes-no / choice). Distinguishes "idle waiting for the user" (not done) from
+# "idle, work finished" — a waiting pane must not be released or delivered to.
+pane_waiting() {
+  [ -n "$AIMUX_WAIT_PATTERN" ] || return 1
+  visible_screen "$1" | grep -qiE "$AIMUX_WAIT_PATTERN"
+}
+
+# wait_is_risky <pane_id> -> 0 if a waiting pane's tail matches the HIGH-RISK
+# pattern (must go to the human; never manager-auto-answered). Empty pattern =>
+# nothing is risky.
+wait_is_risky() {
+  [ -n "$AIMUX_WAIT_RISK_PATTERN" ] || return 1
+  visible_screen "$1" | grep -qiE "$AIMUX_WAIT_RISK_PATTERN"
+}
+
+# is_manager_pane <pane_id> -> 0 if the pane is the MANAGER (named "manager" by
+# aimux-up). The manager is the top of the chain: it talks to the human and has
+# NO surrogate above it. So a prompt the manager is blocked on must go to the
+# REAL human — it must NEVER be delegated to a worker. (A worker reply delivered
+# to the manager registers the manager pane as an inflight unit; without this
+# guard, the LOW-RISK path would route the manager's own prompt back to the
+# worker that sent the reply — asking the worker to rubber-stamp the manager's
+# git/plan-gate prompts. That inversion both corrupts authority and churns
+# endless notices until wait-timeout.)
+is_manager_pane() {
+  [ "$(tmux display-message -t "$1" -p '#{@awm_pane_name}' 2>/dev/null)" = "manager" ]
+}
+
+# wait_excerpt <pane_id> -> the last few non-empty screen lines (the prompt the
+# pane is blocked on), for embedding in the manager notice so it knows what it
+# is answering.
+wait_excerpt() {
+  visible_screen "$1" | grep -v '^[[:space:]]*$' | tail -8
+}
+
+current_pane() { printf '%s\n' "${TMUX_PANE:-$(tmux display-message -p '#{pane_id}' 2>/dev/null)}"; }
+
+# A pane is "busy from the dispatcher's view" if any in-flight delivery targets it.
+pane_has_inflight() {
+  local pid="$1" f
+  for f in "$INFLIGHT"/*.req; do
+    [ -e "$f" ] || continue
+    [ "$(field "$f" pane_id)" = "$pid" ] && return 0
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Prompt builders (injected into the target pane)
+# ---------------------------------------------------------------------------
+THUMB='       __
+      |  |
+   ___|  |
+  |      |
+  |======|
+  |======|
+  |______|'
+
+role_instruction() {
+  case "$1" in
+    IMPLEMENT) echo "Implement the design/change in the handoff. Edit files, run focused validation, then return a STATUS_REPORT handoff." ;;
+    PROPOSE)   echo "Draft YOUR OWN independent plan/approach for the requirements in the handoff — your design, key decisions, and tradeoffs. Think freely; do not just agree with others and do NOT implement anything. Return a REVIEW_RESPONSE containing your proposal." ;;
+    REVIEW)    echo "Check the handoff for consistency/correctness vs the stated design. Do NOT edit. Return a REVIEW_RESPONSE handoff." ;;
+    INSPECT)   echo "Examine for improvements/quality issues. Do NOT edit unless paired with FIX. Return a REVIEW_RESPONSE handoff." ;;
+    TEST)      echo "Run/add/assess the relevant tests. Return a STATUS_REPORT with commands, results, gaps." ;;
+    VERIFY)    echo "Validate behavior/acceptance criteria end-to-end. Return a STATUS_REPORT with evidence and confidence." ;;
+    FIX)       echo "Fix confirmed issues when safe, rerun focused checks, return a STATUS_REPORT." ;;
+    *)         echo "Follow the handoff action items and return the appropriate STATUS_REPORT / REVIEW_RESPONSE / BLOCKER_RAISED handoff." ;;
+  esac
+}
+
+build_request_prompt() {
+  local handoff="$1" roles="$2" src_id="$3" src_name="$4" tgt_id="$5" tgt_name="$6" req_id="$7"
+  local instr="" r
+  IFS='+' read -ra _rs <<< "$roles"
+  for r in "${_rs[@]}"; do instr+="- ${r}: $(role_instruction "$r")"$'\n'; done
+  cat <<EOF
+$THUMB
+
+Invocation identity:
+- You are the RECEIVER of this pasted tmux prompt. Your pane is where this
+  prompt landed. Do not infer your identity from shared AIMemory files.
+
+Route facts:
+- Source pane: ${src_id} (${src_name:-unnamed})
+- Target pane: ${tgt_id} (${tgt_name:-unnamed})
+
+AIMemory tmux handoff received. Read AIMemory/PROTOCOL.md if unfamiliar,
+then open this exact handoff file:
+
+  ${handoff}
+
+Action roles: ${roles}
+Request id: ${req_id}
+${instr}
+Autonomy: do not ask routine clarification. Make reasonable assumptions and
+execute now unless blocked by a missing file, a destructive/external action,
+a credential need, or material ambiguity.
+
+Scratch files: write any temporary/scratch files under AIMemory/tmp/ (inside
+the project), never /tmp — paths outside the project trigger permission prompts.
+
+When done: append HANDOFF_RECEIVED then HANDOFF_CLOSED to work.log, create
+your response handoff file, and return it to the source pane by running:
+
+  AIMemory/bin/aimux enqueue --to ${src_name:-$src_id} --type response \\
+    --reply-to ${req_id} \\
+    --handoff <your-response-handoff-path> --roles GENERAL_STATUS
+
+Do NOT paste into the source pane yourself — enqueue and let the dispatcher
+deliver it when the source pane is idle.
+EOF
+}
+
+build_response_prompt() {
+  local handoff="$1" src_id="$2" src_name="$3" ret_id="$4" ret_name="$5"
+  cat <<EOF
+$THUMB
+
+Invocation identity:
+- You are the ORIGINAL SOURCE pane receiving a returned handoff. This pasted
+  prompt is authoritative. Do not infer identity from shared AIMemory files.
+
+Route facts:
+- Source pane: ${src_id} (${src_name:-unnamed})
+- Returning pane: ${ret_id} (${ret_name:-unnamed})
+
+AIMemory tmux handoff completed. Read the returned handoff now:
+
+  ${handoff}
+
+Review it against your original request, then tell the user your judgment:
+ACCEPTED / CHANGES_REQUESTED / NEEDS_VALIDATION / BLOCKED — with reason,
+evidence, and next action. Append a NOTE to work.log with the judgment.
+If follow-up implementation is needed, ask the user before enqueuing a new
+IMPLEMENT/FIX handoff.
+EOF
+}
+
+build_highfive_prompt() {
+  local src_id="$1" src_name="$2"
+  cat <<EOF
+AIMemory tmux high-five test received.
+
+Print this art in your reply, then state which pane you are:
+
+   ___   _   __
+  / _ \\ | | / /
+ | | | || |/ /
+ | | | ||   <
+ | |_| || |\\ \\
+  \\___/ |_| \\_\\
+Sent by: ${src_name:-$src_id}
+
+Then return the test by enqueuing back to the source pane:
+  AIMemory/bin/aimux enqueue --to ${src_name:-$src_id} --type response \\
+    --handoff HIGHFIVE_CONFIRMED --roles GENERAL_STATUS
+Do not paste into the source pane directly.
+EOF
+}
+
+# Automated heads-up to the source/manager when a worker request was freed
+# without the worker ever returning a response (idle/timeout/pane-gone). "Idle"
+# is NOT success — this tells the manager to verify, not assume.
+build_notice_prompt() {
+  local worker="$1" handoff="$2" oid="$3" reason="$4" wpane="${5:-}" excerpt_b64="${6:-}"
+
+  # A worker blocked on a LOW-RISK user prompt: ask the manager to ACT AS THE
+  # HUMAN and answer it in place, so the work keeps flowing.
+  if [ "$reason" = awaiting-user ]; then
+    local excerpt; excerpt="$(printf '%s' "$excerpt_b64" | base64 -d 2>/dev/null)"
+    cat <<EOF
+$THUMB
+
+Dispatcher notice (automated — this is NOT a worker report).
+
+Worker '${worker}' (pane ${wpane}) is BLOCKED on a user prompt and cannot
+continue until someone answers it. The dispatcher judged it LOW-RISK (no
+destructive / irreversible / external / credential markers), so it is yours to
+clear — the worker's delivery lock is HELD (it is NOT reassigned), it is just
+waiting for an answer. What its screen shows:
+---
+${excerpt}
+---
+FIRST re-check the prompt is STILL there — the real user may have answered it in
+the meantime. Run:
+  tmux capture-pane -p -t ${wpane} | tail -8
+If that prompt is GONE or the pane has moved on, do NOTHING: the answer was
+already given. Just log 'prompt already cleared' to work.log and continue — do
+NOT send any keys (a stale answer would be read as new input and cause wrong
+work). ONLY if it is still blocked on this exact prompt:
+
+ACT AS THE HUMAN now: decide the answer yourself and send it straight into that
+pane (this is the one allowed direct paste — answering a prompt is not a
+handoff):
+  tmux send-keys -t ${wpane} '<your answer>' Enter      # e.g. 'y', '1', 'yes'
+  tmux send-keys -t ${wpane} Enter                       # for a bare "Press Enter"
+Pick the option that keeps the assigned work moving (usually: approve/continue).
+ONLY if you actually judge this risky after reading it (it would delete/
+overwrite data, push/deploy, touch credentials, or do something irreversible or
+externally visible) do NOT answer — instead surface it to the real user and
+wait. Log your decision (answered <what> / escalated) in work.log.
+EOF
+    return 0
+  fi
+
+  cat <<EOF
+$THUMB
+
+Dispatcher notice (automated — this is NOT a worker report).
+
+Worker '${worker}' was handed:
+  ${handoff}   (req ${oid})
+and then went idle / its delivery lock was freed (reason: ${reason}) WITHOUT
+enqueuing any response handoff back to you.
+
+That usually means it produced nothing, failed silently, or skipped the return
+step. Do NOT treat "idle" as completion.
+
+Act now: verify that worker's ACTUAL output (open the files the handoff asked
+for). If the work is genuinely there and correct, accept it and log the
+judgment. Otherwise re-route the unit to a more reliable worker (or re-dispatch
+with clearer/explicit steps). Record the decision in work.log.
+
+If you ALREADY verified and accepted this very unit yourself (you spotted the
+idle worker and checked its output before this notice reached you), do NOT
+re-verify or redo anything — just mark it closed so the dispatcher stops
+following up on it:
+
+  AIMemory/bin/aimux resolve ${oid}
+
+(That also makes the dispatcher drop any late response about this request.)
+And next time, run that resolve command right when you accept a unit
+out-of-band — then this notice is never sent at all.
+EOF
+}
+
+# A SINGLE-LINE nudge (no embedded newlines) so the target's TUI submits it on
+# Enter — used to wake an agent that didn't pick up a multi-line pasted prompt.
+build_nudge() {
+  local f="$1" type handoff sid from
+  type="$(field "$f" type)"; handoff="$(field "$f" handoff)"; sid="$(field "$f" id)"; from="$(field "$f" from)"
+  case "$type" in
+    response)
+      printf 'AIMemory: you have an UNPROCESSED return that was delivered but not acted on — read %s now, judge it (ACCEPTED / CHANGES_REQUESTED / NEEDS_VALIDATION / BLOCKED) with evidence, and append a NOTE to AIMemory/work.log.' "$handoff" ;;
+    notice)
+      printf 'AIMemory: an unhandled dispatcher notice is waiting — read the tail of AIMemory/work.log and act on it (verify a worker output / re-route), then log the decision.' ;;
+    *)
+      printf 'AIMemory: handoff %s (req %s) was delivered but not picked up — open it NOW, append HANDOFF_RECEIVED, do the work, and return with: AIMemory/bin/aimux enqueue --to %s --type response --reply-to %s --handoff <your-report> --roles GENERAL_STATUS' "$handoff" "$sid" "$from" "$sid" ;;
+  esac
+}
+
+# Per-CLI submit settle. Most TUIs clear the input box and start rendering
+# within AIMUX_ENTER_SETTLE of the Enter, so the screen-change check confirms
+# the submit. opencode renders that transition slower, so the default window
+# expired before the change showed and deliver() logged a FALSE RETRY/STUCK even
+# though the paste HAD submitted (it then completed the work fine). A longer
+# per-kind settle restores reliable detection. Override per kind via
+# AIMUX_ENTER_SETTLE_<KIND>; kind comes from the pane's @awm_agent_kind tag.
+enter_settle_for() {
+  case "$1" in
+    opencode) printf '%s' "$AIMUX_ENTER_SETTLE_OPENCODE" ;;
+    *)        printf '%s' "$AIMUX_ENTER_SETTLE" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Delivery primitive — the only place that rings a doorbell.
+#
+# Submit must be VERIFIED, not assumed: TUI CLIs (codex, claude, …) ingest a
+# multi-line bracketed paste asynchronously, and an Enter sent in the same
+# instant is sometimes swallowed with the paste instead of submitting it —
+# the prompt then sits in the input box as "[Pasted Content N chars]" and the
+# agent never starts. So: paste, give the TUI a beat to ingest, press Enter,
+# then check the screen actually CHANGED (input box cleared / agent started).
+# If the tail hash is unchanged, the Enter didn't register — press it again,
+# up to AIMUX_ENTER_TRIES times. The engagement check + re-nudge remain the
+# downstream backstop if even that fails.
+# ---------------------------------------------------------------------------
+deliver() {
+  local tgt_id="$1" body="$2" buf="awm-aimux-$$-$RANDOM"
+  printf '%s' "$body" | tmux load-buffer -b "$buf" - 2>/dev/null || return 1
+  tmux paste-buffer -p -t "$tgt_id" -b "$buf" 2>/dev/null || { tmux delete-buffer -b "$buf" 2>/dev/null; return 1; }
+  tmux delete-buffer -b "$buf" 2>/dev/null || true
+  local try a b kind settle
+  kind="$(tmux display-message -t "$tgt_id" -p '#{@awm_agent_kind}' 2>/dev/null)"
+  settle="$(enter_settle_for "$kind")"        # per-CLI: opencode renders slower
+  for (( try=1; try<=AIMUX_ENTER_TRIES; try++ )); do
+    sleep "$settle"                           # let the TUI finish ingesting the paste
+    a="$(tail_hash "$tgt_id")"
+    tmux send-keys -t "$tgt_id" Enter 2>/dev/null
+    sleep "$settle"                           # let the submit render
+    b="$(tail_hash "$tgt_id")"
+    [ -n "$b" ] && [ "$b" != "$a" ] && break  # screen moved -> the Enter took effect
+    if [ "$try" -lt "$AIMUX_ENTER_TRIES" ]; then
+      vlog "$(printf '\033[33m↵ RETRY  \033[0m Enter not yet confirmed on %s — pressing again (%s/%s)' "$tgt_id" "$try" "$AIMUX_ENTER_TRIES")"
+    else
+      # Often a slow-rendering TUI that DID submit (the change just didn't show
+      # inside the settle window), not a real stall — so this is dim, not a
+      # warning, and the wording reflects that. The engagement check / re-nudge
+      # is the real backstop if the paste genuinely sat unsubmitted.
+      vlog "$(printf '\033[2m↵ submit unconfirmed on %s after %s tries — slow TUI? engagement check will confirm\033[0m' "$tgt_id" "$AIMUX_ENTER_TRIES")"
+      log_event NOTE "Delivery to pane $tgt_id: Enter submit not visually confirmed within the settle window after $AIMUX_ENTER_TRIES tries (often a slow-rendering TUI that DID submit) — engagement check / re-nudge will confirm or recover."
+    fi
+  done
+  tmux display-message -t "$tgt_id" 'AIMemory: handoff delivered' 2>/dev/null || true
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+cmd_panes() {
+  in_tmux || die "not inside tmux"
+  printf 'PANE_ID\tNAME\tKIND\tINIT\tLOCATION\tTITLE\n'
+  scope_list \
+    '#{pane_id}	#{?@awm_pane_name,#{@awm_pane_name},-}	#{?@awm_agent_kind,#{@awm_agent_kind},-}	#{?@awm_init_file,#{@awm_init_file},-}	#{session_name}:#{window_index}.#{pane_index}	#{pane_title}'
+}
+
+# Live per-agent state board: who is idle/busy/waiting and what each is handling.
+# The manager uses this to assign work to capable IDLE agents and to re-route.
+# Three states (NOT two): a pane BLOCKED on a user prompt is `waiting`, never
+# `idle` — its screen is stable so a naive idle check would mislabel it as done
+# and the manager would wrongly read it as finished-with-no-output (a failure).
+# `waiting` means "held by the dispatcher, being unblocked — do NOT reassign or
+# treat as failed". (Each pane is idle-sampled, so this takes
+# ~AIMUX_IDLE_SAMPLE_SECS per agent; a waiting pane is detected without sampling.)
+cmd_agents() {
+  in_tmux || die "not inside tmux"
+  ensure_dirs
+  printf 'NAME\tKIND\tSTATE\tHANDLING\n'
+  local pid name kind state hand f
+  while IFS=$'\t' read -r pid name kind; do
+    [ -n "$name" ] || continue
+    [ "$name" = dispatch ] && continue
+    # Manager exemption: its rendered text false-matches the wait pattern, so
+    # never label the manager `waiting` (it has no surrogate prompt to route).
+    if [ "$name" != manager ] && pane_waiting "$pid"; then state=waiting
+    elif pane_idle "$pid"; then state=idle
+    else state=busy; fi
+    hand="-"
+    for f in "$INFLIGHT"/*.req; do
+      [ -e "$f" ] || continue
+      if [ "$(field "$f" pane_id)" = "$pid" ]; then
+        hand="$(_styp "$(field "$f" type)") $(basename "$(field "$f" handoff)")"
+        break
+      fi
+    done
+    printf '%s\t%s\t%s\t%s\n' "$name" "${kind:--}" "$state" "$hand"
+  done < <(scope_list '#{pane_id}	#{?@awm_pane_name,#{@awm_pane_name},}	#{?@awm_agent_kind,#{@awm_agent_kind},}')
+}
+
+cmd_name() {
+  in_tmux || die "not inside tmux"
+  local name="" kind="" pane=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kind) kind="$2"; shift 2;;
+      --pane) pane="$2"; shift 2;;
+      --*) die "unknown option $1";;
+      *) [ -z "$name" ] && name="$1" || die "unexpected arg $1"; shift;;
+    esac
+  done
+  [ -n "$name" ] || die "usage: aimux name <name> [--kind <kind>] [--pane <id>]"
+  local pid; pid="${pane:-$(current_pane)}"
+  pid="$(resolve_pane "$pid")" || die "cannot resolve pane"
+  tmux set-option -p -t "$pid" @awm_pane_name "$name"
+  tmux select-pane -t "$pid" -T "$name"
+  tmux set-option -p -t "$pid" allow-rename off 2>/dev/null || true
+  [ -n "$kind" ] && tmux set-option -p -t "$pid" @awm_agent_kind "$kind"
+  # Make the stable name win over transient CLI titles in the border.
+  local win; win="$(tmux display-message -t "$pid" -p '#{window_id}')"
+  tmux set-window-option -t "$win" pane-border-status top 2>/dev/null || true
+  tmux set-window-option -t "$win" pane-border-format \
+    '#[bold] #{?@awm_pane_name,#{@awm_pane_name},#{pane_title}}#{?@awm_agent_kind, (#{@awm_agent_kind}),} #[default]' 2>/dev/null || true
+  printf 'named %s -> %s%s\n' "$pid" "$name" "${kind:+ (kind=$kind)}"
+}
+
+cmd_enqueue() {
+  ensure_dirs
+  local to="" handoff="" roles="GENERAL_STATUS" from="" type="request" reply_to="" prio="50"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to)       to="$2"; shift 2;;
+      --handoff)  handoff="$2"; shift 2;;
+      --roles)    roles="$2"; shift 2;;
+      --from)     from="$2"; shift 2;;
+      --type)     type="$2"; shift 2;;
+      --reply-to) reply_to="$2"; shift 2;;
+      --priority) prio="$2"; shift 2;;
+      *) die "unknown option $1";;
+    esac
+  done
+  [ -n "$to" ] || die "--to <pane-name> required"
+  [ -n "$handoff" ] || die "--handoff <path> required (or a token like HIGHFIVE_CONFIRMED)"
+  [ -z "$from" ] && from="$(current_pane)"
+
+  # Guard: --type response is for returning a result to the original source. A
+  # task carrying action roles (IMPLEMENT/FIX/...) is a fresh REQUEST — sending
+  # it as a response would paste the "you are the source, judge this" prompt and
+  # silently drop the roles. Coerce it back to a request.
+  if [ "$type" = response ] && printf '%s' "$roles" | grep -qiE 'IMPLEMENT|FIX|REVIEW|INSPECT|TEST|VERIFY'; then
+    warn "--type response with action roles ($roles) is a work dispatch, not a return; using --type request"
+    type=request
+  fi
+
+  local id prio3 tmp file
+  id="$(date '+%Y%m%d-%H%M%S')-$$-$RANDOM"
+  prio3="$(printf '%03d' "$prio")"
+  file="$Q/${prio3}-$(now)-$RANDOM.req"
+  tmp="$(mktemp "$AIMUX_TMP/aimux.XXXXXX")"
+  {
+    echo "id: $id"
+    echo "type: $type"
+    echo "to: $to"
+    echo "from: $from"
+    echo "handoff: $handoff"
+    echo "roles: $roles"
+    echo "priority: $prio"
+    echo "reply_to: $reply_to"
+    echo "created: $(now)"
+    echo "tries: 0"
+  } > "$tmp"
+  mv -f "$tmp" "$file"          # atomic publish
+  printf 'enqueued %s (id=%s, to=%s, type=%s)\n' "$(basename "$file")" "$id" "$to" "$type"
+  # Record the request id so the receiver can cite it in --reply-to.
+  log_event NOTE "Enqueued $type to tmux-pane:$to. req-id=$id handoff=$handoff roles=$roles"
+}
+
+# Build the right prompt for a queued request, given resolved panes.
+build_prompt_for() {
+  local f="$1" src_id="$2" src_name="$3" tgt_id="$4" tgt_name="$5"
+  local type handoff roles req_id
+  type="$(field "$f" type)"; handoff="$(field "$f" handoff)"; roles="$(field "$f" roles)"
+  req_id="$(field "$f" id)"
+  case "$type" in
+    response)
+      if [ "$handoff" = "HIGHFIVE_CONFIRMED" ]; then
+        printf 'HIGHFIVE_CONFIRMED\nFrom pane: %s\n' "${src_name:-$src_id}"
+      else
+        # delivering a worker's result back to the original source pane
+        build_response_prompt "$handoff" "$tgt_id" "$tgt_name" "$src_id" "$src_name"
+      fi ;;
+    highfive)
+      build_highfive_prompt "$src_id" "$src_name" ;;
+    notice)
+      build_notice_prompt "$(field "$f" orig_to)" "$(field "$f" orig_handoff)" \
+                          "$(field "$f" orig_id)" "$(field "$f" notice_reason)" \
+                          "$(field "$f" wait_pane)" "$(field "$f" wait_excerpt_b64)" ;;
+    *)
+      build_request_prompt "$handoff" "$roles" "$src_id" "$src_name" "$tgt_id" "$tgt_name" "$req_id" ;;
+  esac
+}
+
+# Try to deliver one pending request. Returns 0 if delivered/handled.
+deliver_pending() {
+  local f="$1"
+  [ -e "$f" ] || return 1
+
+  # A pending item about a request the manager already RESOLVED out-of-band is
+  # noise, not work: a freed/wait notice would tell the manager to re-verify
+  # what it already accepted, and a late worker response would trigger a
+  # duplicate re-judgment. Drop it (kept in done/ as `superseded`).
+  local typ ref=""
+  typ="$(field "$f" type)"
+  case "$typ" in
+    request)  ref="$(field "$f" id)";;
+    response) ref="$(field "$f" reply_to)";;
+    notice)   ref="$(field "$f" orig_id)";;
+  esac
+  if [ -n "$ref" ] && is_resolved "$ref"; then
+    local dto did; dto="$(field "$f" to)"; did="$(field "$f" id)"
+    set_field "$f" release_reason "superseded"
+    mv -f "$f" "$DONE/"
+    vlog "$(printf '\033[2m✘ DROP   %-4s   %-8s %s (manager already resolved req %s)\033[0m' "$(_styp "$typ")" "$dto" "$(_sid "$did")" "$(_sid "$ref")")"
+    log_event NOTE "Dropped pending $typ for resolved req $ref — the manager already verified & accepted that unit out-of-band; not delivering a duplicate follow-up."
+    return 0
+  fi
+
+  local to from tgt_id src_id tgt_name src_name tries
+  to="$(field "$f" to)"; from="$(field "$f" from)"
+  tries="$(field "$f" tries)"; tries="${tries:-0}"
+
+  if ! tgt_id="$(resolve_pane "$to")"; then
+    tries=$((tries+1)); set_field "$f" tries "$tries"
+    if [ "$tries" -ge 30 ]; then
+      mv -f "$f" "$FAILED/"; warn "giving up on $(basename "$f"): target '$to' unresolved"
+      log_event NOTE "Dispatch failed: target pane '$to' unresolved after $tries tries."
+    fi
+    return 1
+  fi
+  # Resolve source for route facts (best-effort).
+  src_id="$(resolve_pane "$from" 2>/dev/null || echo "$from")"
+  tgt_name="$(tmux display-message -t "$tgt_id" -p '#{?@awm_pane_name,#{@awm_pane_name},}' 2>/dev/null)"
+  src_name="$(tmux display-message -t "$src_id" -p '#{?@awm_pane_name,#{@awm_pane_name},}' 2>/dev/null || true)"
+
+  # Collision guard 1: never two deliveries in flight to the same pane.
+  pane_has_inflight "$tgt_id" && return 1
+  # Collision guard 2: don't paste into a pane blocked on a user prompt.
+  # Exempt the MANAGER pane: it continuously renders arbitrary text (handoff
+  # bodies, PROTOCOL excerpts, quoted worker prompts) that false-matches the wait
+  # pattern, which would wedge delivery of worker responses to it. Guards 1
+  # (inflight) + 3 (idle) are sufficient for the manager.
+  if ! is_manager_pane "$tgt_id" && pane_waiting "$tgt_id"; then return 1; fi
+  # Collision guard 3: only ring an idle pane.
+  pane_idle "$tgt_id" || return 1
+
+  local body; body="$(build_prompt_for "$f" "$src_id" "$src_name" "$tgt_id" "$tgt_name")"
+  if ! deliver "$tgt_id" "$body"; then
+    warn "paste failed to $tgt_id; will retry"; return 1
+  fi
+  # Move to in-flight and stamp delivery state.
+  local inf="$INFLIGHT/$(basename "$f")"
+  mv -f "$f" "$inf"
+  set_field "$inf" pane_id "$tgt_id"
+  set_field "$inf" delivered "$(now)"
+  set_field "$inf" idle_streak 0
+  set_field "$inf" logn "$(agentlog_count)"   # agent-event baseline for engagement check
+  log_event NOTE "Dispatched $(field "$inf" type) id=$(field "$inf" id) -> tmux-pane:$to ($tgt_id)."
+  vlog "$(printf '\033[36m▶ DELIVER\033[0m %-4s → %-8s \033[2m%s\033[0m' "$(_styp "$(field "$inf" type)")" "$to" "$(_sid "$(field "$inf" id)")")"
+  return 0
+}
+
+# Was this request RESOLVED out-of-band by the manager (`aimux resolve`)?
+# A resolved id means the manager already verified & accepted the unit itself
+# (it spotted the idle worker and handled the result without a response
+# handoff) — so the dispatcher must not re-surface it: no freed-notice, and
+# any late notice/response about it is dropped instead of delivered.
+is_resolved() {
+  [ -f "$AIMUX_STATE/resolved.ids" ] || return 1
+  grep -qxF "$1" "$AIMUX_STATE/resolved.ids" 2>/dev/null
+}
+
+# Has someone enqueued a response replying to this request id?
+response_seen_for() {
+  local id="$1" d
+  for d in "$Q" "$INFLIGHT" "$DONE"; do
+    grep -lq "^reply_to: $id$" "$d"/*.req 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Tell the source/manager that a worker request was freed without a response.
+# Enqueued at high priority as a `notice` so the manager hears it via the normal
+# delivery path (and the live feed) instead of guessing from "idle".
+_emit_notice() {
+  local to="$1" worker="$2" handoff="$3" oid="$4" reason="$5" id file tmp
+  [ -n "$to" ] || return 0
+  id="$(date '+%Y%m%d-%H%M%S')-$$-$RANDOM"
+  file="$Q/010-$(now)-$RANDOM.req"
+  tmp="$(mktemp "$AIMUX_TMP/aimux.XXXXXX")"
+  {
+    echo "id: $id"; echo "type: notice"; echo "to: $to"; echo "from: $worker"
+    echo "handoff: -"; echo "roles: GENERAL_STATUS"; echo "priority: 10"; echo "reply_to:"
+    echo "orig_to: $worker"; echo "orig_handoff: $handoff"; echo "orig_id: $oid"
+    echo "notice_reason: $reason"; echo "created: $(now)"; echo "tries: 0"
+  } > "$tmp"
+  mv -f "$tmp" "$file"
+  log_event NOTE "Auto-notice -> $to: worker '$worker' freed on '$reason' with NO response (orig req $oid, handoff $handoff). Manager should verify, not assume completion."
+}
+
+# Ask the MANAGER to act as the human for a LOW-RISK prompt a worker is blocked
+# on. Carries the worker name, its pane id (so the manager can answer in place),
+# and a base64 excerpt of the prompt. Distinct from the freed-without-response
+# notice: the worker is NOT done and its lock stays HELD — the manager just
+# unblocks it. Emitted once per wait episode (gated by the inflight `waiting`
+# flag). Higher priority (005) than the freed-notice so it is answered promptly.
+_emit_wait_notice() {
+  local to="$1" worker="$2" wpane="$3" oid="$4" excerpt="$5" id file tmp b64
+  [ -n "$to" ] || return 0
+  id="$(date '+%Y%m%d-%H%M%S')-$$-$RANDOM"
+  file="$Q/005-$(now)-$RANDOM.req"
+  tmp="$(mktemp "$AIMUX_TMP/aimux.XXXXXX")"
+  b64="$(printf '%s' "$excerpt" | base64 | tr -d '\n')"
+  {
+    echo "id: $id"; echo "type: notice"; echo "to: $to"; echo "from: $worker"
+    echo "handoff: -"; echo "roles: GENERAL_STATUS"; echo "priority: 5"; echo "reply_to:"
+    echo "orig_to: $worker"; echo "orig_handoff: -"; echo "orig_id: $oid"
+    echo "notice_reason: awaiting-user"; echo "wait_pane: $wpane"
+    echo "wait_excerpt_b64: $b64"; echo "created: $(now)"; echo "tries: 0"
+  } > "$tmp"
+  mv -f "$tmp" "$file"
+  log_event NOTE "Auto-notice -> $to: worker '$worker' is blocked on a LOW-RISK user prompt (req $oid) — asked manager to act as the human and answer it in pane $wpane; worker held, not reassigned."
+  # Echo the queue file so the caller can cancel this notice if the prompt is
+  # answered (by the real user) before the dispatcher ever delivers it.
+  printf '%s\n' "$file"
+}
+
+release_inflight() {
+  local f="$1" reason="$2"
+  local rtype rto rfrom rhandoff rid
+  rtype="$(field "$f" type)"; rto="$(field "$f" to)"; rfrom="$(field "$f" from)"
+  rhandoff="$(field "$f" handoff)"; rid="$(field "$f" id)"
+  vlog "$(printf '\033[32m✔ DONE   \033[0m %-4s   %-8s \033[2m%s (%s)\033[0m' "$(_styp "$rtype")" "$rto" "$(_sid "$rid")" "$reason")"
+  set_field "$f" released "$(now)"
+  set_field "$f" release_reason "$reason"
+  mv -f "$f" "$DONE/"
+  # A worker REQUEST that ended without ever returning a response is an anomaly
+  # (idle/timeout/pane-gone, not response-seen) — surface it to the source.
+  # Exception: `resolved` means the manager ALREADY verified & accepted the
+  # unit out-of-band, so a "verify this" notice would be a duplicate.
+  if [ "$rtype" = request ] && [ "$reason" != response-seen ] && [ "$reason" != resolved ] \
+     && ! is_resolved "$rid" && ! response_seen_for "$rid"; then
+    _emit_notice "$rfrom" "$rto" "$rhandoff" "$rid" "$reason"
+  fi
+}
+
+# Advance one in-flight delivery: release the pane lock only when the target is
+# genuinely done. "Delivered" is NOT "processed": if we free the lock while the
+# agent is still working, the next delivery is pasted on top and lost. So we
+# release only after the pane has been observed idle for several CONSECUTIVE
+# checks (or the target replied, or timeout). A busy pane resets the streak, so
+# one coincidentally-stable frame can't free the lock.
+process_inflight() {
+  local f="$1"
+  [ -e "$f" ] || return 0
+  local pid delivered id streak
+  pid="$(field "$f" pane_id)"; delivered="$(field "$f" delivered)"; id="$(field "$f" id)"
+  streak="$(field "$f" idle_streak)"; streak="${streak:-0}"
+  local elapsed=$(( $(now) - ${delivered:-0} ))
+
+  # Pane vanished -> release.
+  if ! pane_alive "$pid"; then release_inflight "$f" "pane-gone"; return 0; fi
+  # Hard timeout -> release (warn). Kept as a backstop even for a waiting pane,
+  # so a forgotten/false-positive prompt can't hold the lock forever.
+  if [ "$elapsed" -ge "$AIMUX_INFLIGHT_TIMEOUT" ]; then
+    # A pane STILL actively working at the timeout (screen moving, not blocked on
+    # a prompt) is long, not stuck — a big doc conversion / build can exceed 15m
+    # in a single turn. Extend up to a hard ceiling instead of false-releasing it
+    # as "timed out, no response". Only fall through to release once the pane is
+    # idle / prompt-blocked, or the ceiling is hit. (pane_waiting is cheap;
+    # pane_idle samples — fine, this only runs past the timeout.)
+    if [ "$elapsed" -lt "$AIMUX_INFLIGHT_TIMEOUT_MAX" ] && ! pane_waiting "$pid" && ! pane_idle "$pid"; then
+      if [ "$(field "$f" timeout_extended)" != 1 ]; then
+        set_field "$f" timeout_extended 1
+        vlog "$(printf '\033[33m⧖ LONG  \033[0m %s still BUSY past %ss — extending to %ss ceiling\033[0m' "$(_sid "$id")" "$AIMUX_INFLIGHT_TIMEOUT" "$AIMUX_INFLIGHT_TIMEOUT_MAX")"
+        log_event NOTE "Inflight id=$id passed ${AIMUX_INFLIGHT_TIMEOUT}s but pane is BUSY (still working) — extending to ${AIMUX_INFLIGHT_TIMEOUT_MAX}s ceiling, not releasing as timeout."
+      fi
+      return 0
+    fi
+    release_inflight "$f" "timeout"; log_event NOTE "Inflight id=$id released on timeout (${elapsed}s)."; return 0
+  fi
+  # The manager resolved this unit out-of-band (verified & accepted it after
+  # spotting the idle worker) -> close now, with NO freed-notice.
+  if is_resolved "$id"; then release_inflight "$f" "resolved"; return 0; fi
+  # The target enqueued a reply -> the work was received and answered.
+  if response_seen_for "$id"; then release_inflight "$f" "response-seen"; return 0; fi
+
+  # Worker BLOCKED on a USER prompt = "idle waiting for the user", NOT finished.
+  # Hold the lock (no idle-release, no re-nudge — so the manager is not told the
+  # work is done and does not skip ahead) and reset the idle streak. Then, ONCE
+  # per wait episode, route by risk:
+  #   - LOW-RISK (no destructive/irreversible/external/credential markers): ask
+  #     the MANAGER to act as the human and answer it, so work keeps flowing.
+  #   - HIGH-RISK: do NOT auto-answer — surface to the REAL human only.
+  # Normal logic resumes when the prompt clears.
+  # Manager exemption: the manager pane false-matches the wait pattern on its
+  # rendered text (handoff/PROTOCOL/quoted prompts), so never wait-hold it — its
+  # real prompts are the human's to answer and are surfaced separately. Only
+  # non-manager panes are treated as waiting; the manager falls through to the
+  # normal idle-release path below.
+  if ! is_manager_pane "$pid" && pane_waiting "$pid"; then
+    [ "$streak" -ne 0 ] && set_field "$f" idle_streak 0
+    if [ "$(field "$f" waiting)" != 1 ]; then
+      set_field "$f" waiting 1
+      set_field "$f" wait_since "$(now)"      # when this wait episode began
+    fi
+    # A prompt-blocked pane NEVER self-resolves into a response — only a human or
+    # the manager answering it clears it. If nobody answers within
+    # AIMUX_WAIT_TIMEOUT, stop holding the lock: free it (with a freed-notice, so
+    # the manager re-routes / verifies) instead of waiting out the full inflight
+    # timeout. The prompt stays on screen for the human; a late answer just yields
+    # a superseded/late response, which the queue already tolerates.
+    local wsince; wsince="$(field "$f" wait_since)"; wsince="${wsince:-$(now)}"
+    if [ "$AIMUX_WAIT_TIMEOUT" -gt 0 ] && [ "$(( $(now) - wsince ))" -ge "$AIMUX_WAIT_TIMEOUT" ]; then
+      local waited=$(( $(now) - wsince ))
+      vlog "$(printf '\033[31m⏰ WAITTO\033[0m %s freed after %ss blocked on an unanswered prompt → manager re-routes\033[0m' "$(_sid "$id")" "$waited")"
+      release_inflight "$f" "wait-timeout"
+      log_event NOTE "Inflight id=$id released on wait-timeout (${waited}s blocked on an unanswered user prompt) — manager should answer/re-route; NOT treated as completion."
+      return 0
+    fi
+    # Act ONCE per wait episode. High-risk is surfaced to the human immediately
+    # (surfacing injects nothing, so there's no stale-answer hazard). The
+    # LOW-RISK manager-answer path waits AIMUX_WAIT_NOTICE_CYCLES first, giving
+    # the REAL user a chance to answer the prompt themselves — otherwise the
+    # manager may inject a now-stale answer into a pane that already moved on.
+    if [ "$(field "$f" wait_acted)" != 1 ]; then
+      local wstreak; wstreak="$(field "$f" wait_streak)"; wstreak="${wstreak:-0}"
+      wstreak=$((wstreak+1)); set_field "$f" wait_streak "$wstreak"
+      local wto wfrom; wto="$(field "$f" to)"; wfrom="$(field "$f" from)"
+      if is_manager_pane "$pid"; then
+        # The MANAGER has no surrogate above it — its prompts are the HUMAN's to
+        # answer. Routing them to a worker (the LOW-RISK path) would ask the
+        # worker to rubber-stamp the manager's git/plan-gate prompts and churn a
+        # notice every wait episode. Surface to the human only; never delegate.
+        set_field "$f" wait_acted 1
+        vlog "$(printf '\033[31m⏸ WAIT! \033[0m %-4s   %-8s \033[2m%s — MANAGER blocked, HUMAN only (no worker surrogate)\033[0m' "$(_styp "$(field "$f" type)")" "$wto" "$(_sid "$id")")"
+        tmux display-message -t "$pid" 'AIMemory: MANAGER is blocked on a prompt — only the HUMAN answers it (never a worker)' 2>/dev/null || true
+        log_event NOTE "tmux-pane:$wto (MANAGER) is blocked on a user prompt (req $id) — surfaced to the human; NOT delegated to any worker (the manager has no surrogate above it). For unattended runs, launch the manager with AWM_AUTO_APPROVE=1 so it does not stall on its own tool prompts."
+      elif wait_is_risky "$pid"; then
+        set_field "$f" wait_acted 1
+        vlog "$(printf '\033[31m⏸ WAIT! \033[0m %-4s   %-8s \033[2m%s — awaiting USER input (HIGH-RISK, human only)\033[0m' "$(_styp "$(field "$f" type)")" "$wto" "$(_sid "$id")")"
+        tmux display-message -t "$pid" 'AIMemory: HIGH-RISK prompt — waiting for the HUMAN (not auto-answered)' 2>/dev/null || true
+        log_event NOTE "tmux-pane:$wto is blocked on a HIGH-RISK user prompt (req $id) — held, NOT auto-answered; escalated to the human, do not reassign."
+      elif [ "$wstreak" -ge "$AIMUX_WAIT_NOTICE_CYCLES" ]; then
+        set_field "$f" wait_acted 1
+        vlog "$(printf '\033[35m⏸ WAIT  \033[0m %-4s   %-8s \033[2m%s — low-risk prompt → asking manager to answer\033[0m' "$(_styp "$(field "$f" type)")" "$wto" "$(_sid "$id")")"
+        tmux display-message -t "$pid" 'AIMemory: low-risk prompt — manager is being asked to answer it' 2>/dev/null || true
+        local nf; nf="$(_emit_wait_notice "$wfrom" "$wto" "$pid" "$id" "$(wait_excerpt "$pid")")"
+        set_field "$f" wait_notice_file "$nf"
+      fi
+    fi
+    return 0
+  fi
+  # No longer waiting (the user or the worker cleared the prompt) -> end the wait
+  # episode. If a low-risk wait-notice was emitted but NOT yet delivered, cancel
+  # it: the prompt is already answered, so asking the manager to answer it would
+  # inject a stale answer and cause mismatched work. Reset the episode flags so a
+  # later prompt re-arms cleanly.
+  if [ "$(field "$f" waiting)" = 1 ]; then
+    local nf; nf="$(field "$f" wait_notice_file)"
+    if [ -n "$nf" ] && [ -e "$nf" ]; then
+      rm -f "$nf"
+      log_event NOTE "Wait-notice canceled for tmux-pane:$(field "$f" to) (req $id) — prompt answered before the manager acted; not forwarding a stale answer."
+      vlog "$(printf '\033[2m⏵ CLEAR  wait prompt answered → canceled pending manager notice %s\033[0m' "$(_sid "$id")")"
+    fi
+    set_field "$f" waiting 0
+    set_field "$f" wait_acted 0
+    set_field "$f" wait_streak 0
+    set_field "$f" wait_notice_file ""
+    set_field "$f" wait_since ""
+  fi
+
+  # Grace: give the agent time to pick up the prompt before any idle release.
+  [ "$elapsed" -lt "$AIMUX_MIN_INFLIGHT_SECS" ] && return 0
+
+  if pane_idle "$pid"; then
+    streak=$(( streak + 1 ))
+    set_field "$f" idle_streak "$streak"
+    [ "$streak" -ge "$AIMUX_RELEASE_IDLE_CYCLES" ] || return 0
+
+    # Idle long enough. But did the target actually ENGAGE with the paste? Two
+    # independent signals, EITHER is enough:
+    #   (a) an agent event was appended to work.log since delivery; or
+    #   (b) the pane was observed BUSY at any point after delivery (saw_busy).
+    # Delivery only happens into an idle pane, so any later busy frame IS a
+    # reaction to our paste. (b) is CLI-agnostic and catches workers that do the
+    # work but never write work.log — a work.log-only check mis-reads those as
+    # "never picked up" and RE-NUDGES them into redoing the work (duplicate
+    # work). If neither signal fired, the paste likely sat unsubmitted in the
+    # input box (a multi-line paste can, esp. a return to an already-idle
+    # manager) — only THEN re-nudge once with a single-line, easy-to-submit
+    # reminder before giving up.
+    local logn nown sawbusy
+    logn="$(field "$f" logn)"; logn="${logn:-0}"; nown="$(agentlog_count)"
+    sawbusy="$(field "$f" saw_busy)"; sawbusy="${sawbusy:-0}"
+    if [ "$nown" -gt "$logn" ] || [ "$sawbusy" = 1 ]; then
+      release_inflight "$f" "idle-stable"          # engaged then idle (no redo)
+      return 0
+    fi
+    local renudge; renudge="$(field "$f" renudge)"; renudge="${renudge:-0}"
+    if [ "$renudge" -eq 0 ]; then
+      set_field "$f" renudge 1
+      set_field "$f" idle_streak 0
+      deliver "$pid" "$(build_nudge "$f")"
+      vlog "$(printf '\033[33m↻ NUDGE \033[0m %-4s → %-8s \033[2m%s (not picked up)\033[0m' "$(_styp "$(field "$f" type)")" "$(field "$f" to)" "$(_sid "$id")")"
+      log_event NOTE "Re-nudged tmux-pane:$(field "$f" to) — $(field "$f" type) id=$id not picked up (no agent activity after delivery)."
+    else
+      release_inflight "$f" "unacked"
+      tmux display-message -t "$pid" 'AIMemory: an unprocessed handoff is in work.log — please act' 2>/dev/null || true
+    fi
+  else
+    [ "$streak" -ne 0 ] && set_field "$f" idle_streak 0   # busy -> reset the streak
+    # First busy frame after delivery = the paste was picked up. Record it as a
+    # durable engagement signal (used above to avoid a redo-nudge once idle).
+    [ "$(field "$f" saw_busy)" = 1 ] || set_field "$f" saw_busy 1
+  fi
+}
+
+dispatch_once() {
+  ensure_dirs
+  local f id
+  # Announce newly enqueued requests/responses (each id once) so the pane shows
+  # things entering the queue before they are delivered.
+  for f in $(ls -1 "$Q" 2>/dev/null | sort); do
+    id="$(field "$Q/$f" id)"
+    [ -n "$id" ] && [ -z "${_ANN[$id]:-}" ] || continue
+    _ANN[$id]=1
+    vlog "$(printf '\033[33m＋ QUEUE \033[0m %-4s → %-8s \033[2m%s (%s)\033[0m' "$(_styp "$(field "$Q/$f" type)")" "$(field "$Q/$f" to)" "$(_sid "$id")" "$(field "$Q/$f" roles)")"
+  done
+  for f in "$INFLIGHT"/*.req; do [ -e "$f" ] || continue; process_inflight "$f"; done
+  # Pending in priority+FIFO order (filename encodes prio-epoch-rand).
+  for f in $(ls -1 "$Q" 2>/dev/null | sort); do
+    deliver_pending "$Q/$f" || true
+  done
+  # Manager-signalled checkpoint -> snapshot a versioned run-summary.
+  if [ -f "$AIMUX_STATE/checkpoint.signal" ]; then
+    local lbl vf; lbl="$(tr -d '\n' < "$AIMUX_STATE/checkpoint.signal" 2>/dev/null)"
+    rm -f "$AIMUX_STATE/checkpoint.signal"
+    vf="$(snapshot_summary "$lbl")"
+    vlog "$(printf '\033[35m■ SNAPSHOT\033[0m run-summary %s%s' "$(basename "$vf")" "${lbl:+ ($lbl)}")"
+  fi
+  vboard   # print a compact queue summary whenever the counts changed
+}
+
+cmd_dispatch() {
+  ensure_dirs
+  local once=0 force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --interval) AIMUX_DISPATCH_INTERVAL="$2"; shift 2;;
+      --once) once=1; shift;;
+      --force) force=1; shift;;
+      *) die "unknown option $1";;
+    esac
+  done
+  in_tmux || die "dispatcher must run inside tmux"
+
+  # Single-instance guard. Open read-write WITHOUT truncating so we can read the
+  # holder PID if the lock is taken.
+  local lock="$AIMUX_STATE/dispatch.lock"
+  exec 9<>"$lock"
+  if ! flock -n 9; then
+    local holder; holder="$(tr -d '[:space:]' < "$lock" 2>/dev/null)"
+    if [ "$force" -eq 1 ]; then
+      warn "taking over from dispatcher PID ${holder:-unknown} (--force)"
+      [ -n "$holder" ] && kill "$holder" 2>/dev/null
+      # The old dispatcher may be mid-sleep; its TERM trap releases on wake.
+      # Poll for the lock instead of a single early retry.
+      local tries=0
+      until flock -n 9; do
+        tries=$((tries+1))
+        [ "$tries" -ge 20 ] && die "could not acquire lock even with --force (PID ${holder:-unknown} still holding it?)"
+        sleep 0.5
+      done
+    else
+      die "another dispatcher is already running (PID ${holder:-unknown}). Stop it, or run: aimux dispatch --force"
+    fi
+  fi
+  # Record our PID in the lock file (separate truncating open; flock is on the inode).
+  printf '%s\n' "$$" > "$lock"
+
+  log_event NOTE "Dispatcher started (PID $$, interval=${AIMUX_DISPATCH_INTERVAL}s, once=$once)."
+  if [ "$once" -eq 1 ]; then dispatch_once; return 0; fi
+  printf 'aimux dispatcher running (PID %s). Ctrl-C to stop. State: %s\n' "$$" "$AIMUX_STATE"
+  # HUP is included so the dispatcher dies with its tmux pane/server instead of
+  # orphaning and holding the lock.
+  # Forensics: an EXIT that did NOT come through the signal trap means the loop
+  # died unexpectedly (script bug, set -u, tmux gone). Log the exit code so a
+  # vanished dispatch pane is explained in work.log instead of a silent stall.
+  trap 'rc=$?; trap - EXIT; log_event NOTE "Dispatcher EXITED unexpectedly (PID $$, rc=$rc)."' EXIT
+  trap 'trap - EXIT; log_event NOTE "Dispatcher stopped (PID $$)."; exit 0' INT TERM HUP
+  while true; do
+    dispatch_once
+    sleep "$AIMUX_DISPATCH_INTERVAL"
+  done
+}
+
+cmd_status() {
+  ensure_dirs
+  local p i d ff
+  p="$(ls -1 "$Q" 2>/dev/null | grep -c '\.req$' || true)"
+  i="$(ls -1 "$INFLIGHT" 2>/dev/null | grep -c '\.req$' || true)"
+  d="$(ls -1 "$DONE" 2>/dev/null | grep -c '\.req$' || true)"
+  ff="$(ls -1 "$FAILED" 2>/dev/null | grep -c '\.req$' || true)"
+  echo "aimux status"
+  echo "state_dir: $AIMUX_STATE"
+  if [ ! -f "$AIMUX_STATE/dispatch.lock" ]; then
+    echo "dispatcher: not started (no lock file)"
+  elif flock -n "$AIMUX_STATE/dispatch.lock" -c true 2>/dev/null; then
+    echo "dispatcher: not running (lock free)"
+  else
+    echo "dispatcher: running (lock held, PID $(tr -d '[:space:]' < "$AIMUX_STATE/dispatch.lock" 2>/dev/null))"
+  fi
+  echo "pending: $p"
+  echo "inflight: $i"
+  echo "done: $d"
+  echo "failed: $ff"
+  if [ "$p" -gt 0 ] 2>/dev/null; then
+    echo "--- pending ---"
+    for f in $(ls -1 "$Q" 2>/dev/null | sort); do
+      printf 'id: %s\n  to: %s  type: %s  roles: %s  handoff: %s\n' \
+        "$(field "$Q/$f" id)" "$(field "$Q/$f" to)" "$(field "$Q/$f" type)" \
+        "$(field "$Q/$f" roles)" "$(field "$Q/$f" handoff)"
+    done
+  fi
+  if [ "$i" -gt 0 ] 2>/dev/null; then
+    echo "--- inflight ---"
+    for f in "$INFLIGHT"/*.req; do
+      [ -e "$f" ] || continue
+      printf 'id: %s\n  to: %s  pane: %s  phase: %s  delivered: %ss ago\n' \
+        "$(field "$f" id)" "$(field "$f" to)" "$(field "$f" pane_id)" \
+        "$(field "$f" phase)" "$(( $(now) - $(field "$f" delivered) ))"
+    done
+  fi
+  if in_tmux; then echo "--- panes ---"; cmd_panes; fi
+}
+
+# Path for the next VERSIONED run-summary snapshot. History is kept under
+# AIMemory/run-summary/vNNN-<ts>[-label].json so each save point is preserved
+# for cross-version comparison; AIMemory/run-summary.json always mirrors the
+# latest (the default a paper reads when no version is named).
+_next_summary_path() {
+  local label dir n ts
+  label="$(printf '%s' "${1:-}" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//; s/-$//')"
+  dir="$AIMUX_MEM_DIR/run-summary"; mkdir -p "$dir"
+  n=$(( $(ls -1 "$dir"/v*.json 2>/dev/null | wc -l) + 1 ))
+  ts="$(date +%Y%m%d-%H%M)"
+  printf '%s/v%03d-%s%s.json' "$dir" "$n" "$ts" "${label:+-$label}"
+}
+
+# Write a versioned run-summary snapshot (+ refresh the latest mirror). $1=label.
+snapshot_summary() {
+  local label="${1:-}" vf
+  vf="$(_next_summary_path "$label")"
+  cmd_report --json > "$vf" 2>/dev/null
+  cp -f "$vf" "$AIMUX_MEM_DIR/run-summary.json" 2>/dev/null || true
+  log_event NOTE "run-summary snapshot: $(basename "$vf")${label:+ (label=$label)}; latest -> run-summary.json."
+  printf '%s\n' "$vf"
+}
+
+# Structured, citable run-summary computed from the dispatcher's OWN records
+# (done/ + failed/ *.req — machine-authored, reliable; not LLM prose). Prints a
+# human summary; --json emits JSON; --write saves a VERSIONED snapshot.
+# This is the light instrumentation a paper/report can cite (rounds, per-agent
+# success/failure, re-dispatches, durations).
+cmd_report() {
+  ensure_dirs
+  local json=0 write=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json)  json=1; shift;;
+      --write) write=1; shift;;
+      *) die "unknown option $1";;
+    esac
+  done
+  local req=0 resp=0 notice=0 hi=0
+  declare -A AG_REQ AG_OK RR TOPIC
+  local span_min="" span_max="" t_sum=0 t_n=0 t_min="" t_max="" rows=""
+  local f
+  for f in "$DONE"/*.req "$FAILED"/*.req; do
+    [ -e "$f" ] || continue
+    local ty to hd cr dl rel rr
+    ty="$(field "$f" type)"; to="$(field "$f" to)"; hd="$(field "$f" handoff)"
+    cr="$(field "$f" created)"; dl="$(field "$f" delivered)"; rel="$(field "$f" released)"; rr="$(field "$f" release_reason)"
+    case "$ty" in request) req=$((req+1));; response) resp=$((resp+1));; notice) notice=$((notice+1));; highfive) hi=$((hi+1));; esac
+    [ -n "$rr" ] && RR[$rr]=$(( ${RR[$rr]:-0} + 1 ))
+    if [ "$ty" = request ]; then
+      AG_REQ[$to]=$(( ${AG_REQ[$to]:-0} + 1 ))
+      # completed = returned a response (response-seen) OR the manager verified
+      # & accepted it out-of-band (resolved)
+      case "$rr" in response-seen|resolved) AG_OK[$to]=$(( ${AG_OK[$to]:-0} + 1 ));; esac
+      local topic; topic="$(basename "$hd" 2>/dev/null | sed -E 's/-(retry|reroute|fix|report|reply)([.-]).*$//; s/\.[^.]*$//')"
+      [ -n "$topic" ] && TOPIC[$topic]=1
+    fi
+    [ -n "$cr" ] && { [ -z "$span_min" ] && span_min="$cr"; [ "$cr" -lt "$span_min" ] 2>/dev/null && span_min="$cr"; }
+    [ -n "$rel" ] && { [ -z "$span_max" ] && span_max="$rel"; [ "$rel" -gt "$span_max" ] 2>/dev/null && span_max="$rel"; }
+    if [ -n "$dl" ] && [ -n "$rel" ]; then
+      local ta=$(( rel - dl )); t_sum=$((t_sum+ta)); t_n=$((t_n+1))
+      { [ -z "$t_min" ] || [ "$ta" -lt "$t_min" ]; } && t_min=$ta
+      { [ -z "$t_max" ] || [ "$ta" -gt "$t_max" ]; } && t_max=$ta
+    fi
+    rows+="    {\"type\":\"$ty\",\"to\":\"$to\",\"handoff\":\"$hd\",\"delivered\":${dl:-0},\"released\":${rel:-0},\"release_reason\":\"$rr\"},"$'\n'
+  done
+  local topics=0; for _ in "${!TOPIC[@]}"; do topics=$((topics+1)); done
+  local redis=$(( req - topics )); [ "$redis" -lt 0 ] && redis=0
+  local span=$(( ${span_max:-0} - ${span_min:-0} )); [ "$span" -lt 0 ] && span=0
+  local t_avg=0; [ "$t_n" -gt 0 ] && t_avg=$(( t_sum / t_n ))
+
+  # ---- human summary (only when neither --json nor --write) ----
+  if [ "$json" -eq 0 ] && [ "$write" -eq 0 ]; then
+    echo "aimux run-summary  (session: ${AIMUX_SESSION:-?})"
+    echo "handoffs: requests=$req responses=$resp notices=$notice highfives=$hi"
+    echo "re-dispatches (retry+reroute, requests beyond first per topic): $redis"
+    echo "no-response events (notices): $notice    unacked: ${RR[unacked]:-0}    timeouts: ${RR[timeout]:-0}"
+    echo "release reasons: response-seen=${RR[response-seen]:-0} resolved=${RR[resolved]:-0} idle-stable=${RR[idle-stable]:-0} unacked=${RR[unacked]:-0} timeout=${RR[timeout]:-0} pane-gone=${RR[pane-gone]:-0} superseded=${RR[superseded]:-0}"
+    echo "duration: session_span=${span}s  turnaround min/avg/max=${t_min:-0}/${t_avg}/${t_max:-0}s"
+    echo "per-agent (requests received / completed / failed):"
+    local a; for a in "${!AG_REQ[@]}"; do
+      local r="${AG_REQ[$a]}" ok="${AG_OK[$a]:-0}"; echo "  $a: $r / $ok / $(( r - ok ))"
+    done
+    return 0
+  fi
+
+  # ---- JSON ----
+  local out; out="{
+  \"schema\": \"aimux-run-summary/1\",
+  \"session\": \"${AIMUX_SESSION:-}\",
+  \"project_dir\": \"$(cd "$AIMUX_MEM_DIR/.." 2>/dev/null && pwd)\",
+  \"totals\": {\"requests\": $req, \"responses\": $resp, \"notices\": $notice, \"highfives\": $hi, \"redispatches\": $redis},
+  \"release_reasons\": {\"response-seen\": ${RR[response-seen]:-0}, \"resolved\": ${RR[resolved]:-0}, \"idle-stable\": ${RR[idle-stable]:-0}, \"unacked\": ${RR[unacked]:-0}, \"timeout\": ${RR[timeout]:-0}, \"pane-gone\": ${RR[pane-gone]:-0}, \"superseded\": ${RR[superseded]:-0}},
+  \"durations_seconds\": {\"session_span\": $span, \"turnaround_min\": ${t_min:-0}, \"turnaround_avg\": $t_avg, \"turnaround_max\": ${t_max:-0}},
+  \"per_agent\": {"
+  local a first=1
+  for a in "${!AG_REQ[@]}"; do
+    [ "$first" -eq 1 ] || out+=","
+    out+="
+    \"$a\": {\"requests\": ${AG_REQ[$a]}, \"completed\": ${AG_OK[$a]:-0}, \"failed\": $(( AG_REQ[$a] - ${AG_OK[$a]:-0} ))}"
+    first=0
+  done
+  out+="
+  },
+  \"handoffs\": [
+${rows%,$'\n'}
+  ]
+}"
+  if [ "$write" -eq 1 ]; then
+    echo "wrote $(snapshot_summary "")  (+ run-summary.json latest mirror)"
+  else
+    printf '%s\n' "$out"
+  fi
+}
+
+# Manager-signalled checkpoint: snapshot a versioned run-summary at a milestone
+# (not just at shutdown). The manager runs this when a major requirement is
+# solved; if a dispatcher is running it owns the write (drops a signal the loop
+# picks up), otherwise this writes immediately.
+cmd_checkpoint() {
+  ensure_dirs
+  local label=""
+  while [ $# -gt 0 ]; do
+    case "$1" in --label) label="$2"; shift 2;; *) die "unknown option $1";; esac
+  done
+  local lock="$AIMUX_STATE/dispatch.lock"
+  if [ -f "$lock" ] && ! flock -n "$lock" -c true 2>/dev/null; then
+    printf '%s\n' "$label" > "$AIMUX_STATE/checkpoint.signal"
+    log_event NOTE "Checkpoint signalled${label:+ (label=$label)} — dispatcher will snapshot the run-summary."
+    echo "checkpoint signalled; the dispatcher will write a versioned run-summary."
+  else
+    echo "no dispatcher running — snapshotting now: $(snapshot_summary "$label")"
+  fi
+}
+
+cmd_sendtest() {
+  ensure_dirs
+  local to="" from=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) to="$2"; shift 2;;
+      --from) from="$2"; shift 2;;
+      *) die "unknown option $1";;
+    esac
+  done
+  [ -n "$to" ] || die "usage: aimux send-test --to <pane-name>"
+  [ -z "$from" ] && from="$(current_pane)"
+  # A high-five is just a request with type=highfive and no handoff file.
+  local id prio3 tmp file
+  id="$(date '+%Y%m%d-%H%M%S')-$$-$RANDOM"; prio3="$(printf '%03d' 10)"
+  file="$Q/${prio3}-$(now)-$RANDOM.req"
+  tmp="$(mktemp "$AIMUX_TMP/aimux.XXXXXX")"
+  {
+    echo "id: $id"; echo "type: highfive"; echo "to: $to"; echo "from: $from"
+    echo "handoff: -"; echo "roles: GENERAL_STATUS"; echo "priority: 10"
+    echo "reply_to:"; echo "created: $(now)"; echo "tries: 0"
+  } > "$tmp"
+  mv -f "$tmp" "$file"
+  printf 'high-five queued to %s (run the dispatcher to deliver)\n' "$to"
+}
+
+cmd_cancel() {
+  ensure_dirs
+  local id="$1" f
+  [ -n "$id" ] || die "usage: aimux cancel <req-id>"
+  for f in "$Q"/*.req "$INFLIGHT"/*.req; do
+    [ -e "$f" ] || continue
+    if [ "$(field "$f" id)" = "$id" ]; then
+      set_field "$f" release_reason "cancelled"; mv -f "$f" "$DONE/"
+      echo "cancelled $id"; return 0
+    fi
+  done
+  die "no pending/inflight request with id=$id"
+}
+
+# Manager declares a request CLOSED out-of-band: it spotted the idle worker,
+# verified the actual output itself, and ACCEPTED it — without a response
+# handoff ever coming back. From then on the dispatcher must not re-surface
+# that unit: the inflight is released with NO freed-notice, pending follow-ups
+# (freed/wait notices, late responses) are dropped, and any follow-up enqueued
+# LATER is dropped at delivery time (via resolved.ids).
+# If the unit was NOT genuinely completed, do NOT resolve it — let the normal
+# flow run (wait for a proper response, or act on the freed-notice).
+cmd_resolve() {
+  ensure_dirs
+  local id="" note=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --note) note="$2"; shift 2;;
+      --*) die "unknown option $1";;
+      *) [ -z "$id" ] && id="$1" || die "unexpected arg $1"; shift;;
+    esac
+  done
+  [ -n "$id" ] || die "usage: aimux resolve <req-id> [--note <text>]"
+  printf '%s\n' "$id" >> "$AIMUX_STATE/resolved.ids"
+  # Release the inflight now (reason=resolved -> release_inflight emits NO notice).
+  local f hit=no
+  for f in "$INFLIGHT"/*.req; do
+    [ -e "$f" ] || continue
+    [ "$(field "$f" id)" = "$id" ] || continue
+    release_inflight "$f" "resolved"; hit=yes; break
+  done
+  # Drop follow-ups already sitting in the queue: freed/wait notices about this
+  # request (orig_id) and late worker responses to it (reply_to).
+  local dropped=0
+  for f in "$Q"/*.req; do
+    [ -e "$f" ] || continue
+    if [ "$(field "$f" orig_id)" = "$id" ] || [ "$(field "$f" reply_to)" = "$id" ]; then
+      set_field "$f" release_reason "superseded"; mv -f "$f" "$DONE/"; dropped=$((dropped+1))
+    fi
+  done
+  log_event NOTE "Manager RESOLVED req $id out-of-band${note:+ ($note)}: unit verified & accepted without a response handoff. Inflight released without notice; $dropped pending follow-up(s) dropped; later follow-ups about it will be ignored."
+  printf 'resolved %s (inflight released: %s, pending follow-ups dropped: %s)\n' "$id" "$hit" "$dropped"
+}
+
+# Single-command session lifecycle: `aimux shell` = aimux-up + attach + offer
+# teardown, so the user doesn't type "aimux-up ... then aimux down --yes".
+# Flow: launch via aimux-up (same selection UI), stay attached; when the user
+# DETACHES (Ctrl-b d) or the session ends, ask:
+#   y/Enter -> finalize + terminate the session (down --yes)
+#   n       -> leave it running (prints how to re-attach / finalize later)
+#   a       -> re-attach now (and ask again on the next detach)
+# If the session already ended (e.g. `aimux down --yes` was run inside), exit
+# cleanly. Non-interactive control: AWM_SHELL_ON_DETACH=down|keep|ask (default
+# ask; with no readable tty the answer defaults to KEEP — never kill silently).
+# Must run from a plain terminal: inside tmux the launcher switch-clients and
+# returns immediately, so lifecycle supervision is impossible — it then just
+# delegates to aimux-up (finalize from inside with `aimux down --yes`).
+cmd_shell() {
+  command -v tmux >/dev/null || die "tmux is not installed"
+  local up="$_self/aimux-up"
+  [ -x "$up" ] || die "launcher not found/executable: $up"
+  if [ -n "${TMUX:-}" ]; then
+    warn "already inside tmux — cannot supervise the session lifecycle from here."
+    warn "delegating to aimux-up; finalize from inside the session with: aimux down --yes"
+    exec "$up" "$@"
+  fi
+
+  # The AIMemory dir of the project being launched ($1 may point elsewhere).
+  local mem="$AIMUX_MEM_DIR"
+  [ -n "${1:-}" ] && [ -d "$1" ] && mem="$(cd "$1" && pwd)/AIMemory"
+  local last="$mem/.aimux/last-session" before after ses="" rc
+
+  before="$(cat "$last" 2>/dev/null)"
+  "$up" "$@"                                   # build + attach; returns on detach/kill
+  rc=$?
+  after="$(cat "$last" 2>/dev/null)"
+
+  # Identify the session THIS run created: a fixed AWM_SESSION wins; otherwise
+  # the launcher must have written a NEW name to last-session (names are
+  # timestamped, so unchanged content = the launcher failed before building).
+  if [ -n "${AWM_SESSION:-}" ]; then ses="$AWM_SESSION"
+  elif [ -n "$after" ] && [ "$after" != "$before" ]; then ses="$after"
+  else
+    warn "could not determine the session of this launch (launcher exit $rc) — nothing to finalize"
+    return "$rc"
+  fi
+
+  local mode="${AWM_SHELL_ON_DETACH:-ask}" ans
+  while :; do
+    if ! tmux has-session -t "$ses" 2>/dev/null; then
+      printf 'aimux shell: session %s has already ended — nothing to clean up.\n' "$ses"
+      return 0
+    fi
+    case "$mode" in
+      down) ans=y ;;
+      keep) ans=n ;;
+      *)
+        printf 'aimux shell: session %s is still running.\n' "$ses"
+        printf '  finalize & terminate [Y] / leave running [n] / re-attach [a] ? '
+        ans=""
+        read -r ans </dev/tty 2>/dev/null || ans=n   # no tty -> never kill silently
+        ;;
+    esac
+    case "$ans" in
+      a|A)
+        tmux attach-session -t "$ses" ;;             # loop: ask again on next detach
+      n|N|no|NO)
+        printf 'left running. Re-attach:  tmux attach -t %s\n' "$ses"
+        printf 'Finalize later:           AIMUX_SESSION=%s AIMUX_STATE=%s %s down --yes\n' \
+               "$ses" "$mem/.aimux/$ses" "$_self/aimux"
+        return 0 ;;
+      *)
+        AIMUX_SESSION="$ses" AIMUX_STATE="$mem/.aimux/$ses" AIMUX_MEM_DIR="$mem" \
+          "$_self/aimux" down --yes
+        return $? ;;
+    esac
+  done
+}
+
+# Finalize and tear down THIS session: stop the dispatcher and kill every pane
+# of the session (manager + workers + dispatch). Scoped strictly to
+# AIMUX_SESSION (or the current session) — never touches other sessions or the
+# server. Requires --yes; otherwise it previews what it would kill.
+cmd_down() {
+  in_tmux || die "not inside tmux"
+  local yes=0 purge=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes|-y) yes=1; shift;;
+      --purge)  purge=1; shift;;
+      *) die "unknown option $1";;
+    esac
+  done
+  local ses="${AIMUX_SESSION:-$(tmux display-message -p '#{session_name}' 2>/dev/null)}"
+  [ -n "$ses" ] || die "cannot determine the session to shut down (set AIMUX_SESSION)"
+  tmux has-session -t "$ses" 2>/dev/null || die "session '$ses' not found"
+
+  local pflag=""; [ "$purge" -eq 1 ] && pflag=" --purge"
+  if [ "$yes" -ne 1 ]; then
+    echo "aimux down would FINALIZE and TERMINATE session '$ses' and all its panes:"
+    tmux list-panes -s -t "$ses" -F '  #{pane_id}  #{?@awm_pane_name,#{@awm_pane_name},-}  (#{pane_current_command})' 2>/dev/null
+    echo "Confirm:  AIMemory/bin/aimux down --yes${pflag}"
+    return 0
+  fi
+
+  # Snapshot a final versioned run-summary before tearing down (unless purging).
+  [ "$purge" -eq 1 ] || snapshot_summary "final" >/dev/null 2>&1 || true
+  log_event NOTE "Session '$ses' finalized and shut down (aimux down). Stopping dispatcher; killing all panes.$( [ "$purge" -eq 1 ] && printf ' Purging runtime state.')"
+  # Stop the dispatcher first so it can't orphan and hold the lock.
+  local lock="$AIMUX_STATE/dispatch.lock" holder=""
+  [ -f "$lock" ] && holder="$(tr -d '[:space:]' < "$lock" 2>/dev/null || true)"
+  [ -n "$holder" ] && kill "$holder" 2>/dev/null || true
+  [ "$purge" -eq 1 ] && rm -rf "$AIMUX_STATE"
+  # Kill the whole session last (this also ends the pane running this command).
+  tmux kill-session -t "$ses"
+}
+
+# ---------------------------------------------------------------------------
+# Entry
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# skills-sync — install missing skills from skills-lock.json
+# ---------------------------------------------------------------------------
+cmd_skillsync() {
+  local lock="${AIMUX_SKILLS_LOCK:-$AIMUX_MEM_DIR/../skills-lock.json}"
+  local skills_dir="${AIMUX_CLAUDE_SKILLS_DIR:-$AIMUX_MEM_DIR/../.claude/skills}"
+  local fetch_cmd="${AIMUX_SKILLS_FETCH_CMD:-}"
+  local tmpdir="$AIMUX_TMP/skillsync-$$"
+  local installed=0 present=0 failed=0 name source source_type skill_path expected_hash
+
+  [ -f "$lock" ] || { echo "skills-sync: no lock file at $lock, nothing to do"; return 0; }
+
+  command -v python3 >/dev/null || { echo "skills-sync: python3 not found, skipping"; return 0; }
+
+  mkdir -p "$tmpdir" "$skills_dir"
+
+  while IFS='|' read -r name source source_type skill_path expected_hash; do
+    [ -z "$name" ] && continue
+    local target="$skills_dir/$name"
+    if [ -f "$target/SKILL.md" ]; then
+      echo "  ⊖ $name  already present, skipping"
+      present=$((present+1))
+      continue
+    fi
+    if [ "$source_type" != "github" ]; then
+      echo "  ✗ $name  unsupported sourceType '$source_type', skipping"
+      failed=$((failed+1))
+      continue
+    fi
+
+    local skill_dir subdir_components workdir
+    subdir_components="$(dirname "$skill_path")"  # e.g. "skills/pptx"
+    workdir="$tmpdir/$name"
+    mkdir -p "$workdir"
+
+    if [ -n "$fetch_cmd" ]; then
+      # Test override: fetch_cmd runs with target as CWD
+      mkdir -p "$target"
+      ( cd "$target" && eval "$fetch_cmd" ) || {
+        echo "  ✗ $name  fetch override failed (AIMUX_SKILLS_FETCH_CMD)"
+        failed=$((failed+1)); rm -rf "$target"; continue
+      }
+    else
+      local branch url extracted topdir
+      extracted=0
+      for branch in main master; do
+        url="https://github.com/${source}/archive/${branch}.tar.gz"
+        if curl -sL --connect-timeout 10 "$url" 2>/dev/null | tar xz -C "$workdir" 2>/dev/null; then
+          if [ -n "$(ls -A "$workdir" 2>/dev/null)" ]; then
+            extracted=1
+            break
+          fi
+        fi
+      done
+      if [ "$extracted" -ne 1 ]; then
+        echo "  ✗ $name  failed to fetch/extract from $source"
+        failed=$((failed+1)); continue
+      fi
+
+      topdir="$(cd "$workdir" && ls -1 | head -1)"
+      if [ -z "$topdir" ] || [ ! -d "$workdir/$topdir/$subdir_components" ]; then
+        echo "  ✗ $name  skill path '$skill_path' not found in archive (tried main/master)"
+        failed=$((failed+1)); continue
+      fi
+
+      mkdir -p "$target"
+      cp -r "$workdir/$topdir/$subdir_components/"* "$target/" 2>/dev/null || true
+    fi
+
+    # Hash verify
+    if command -v sha256sum >/dev/null 2>&1; then
+      local actual_hash
+      actual_hash="$(sha256sum "$target/SKILL.md" 2>/dev/null | cut -d' ' -f1)" || true
+      if [ -n "$actual_hash" ] && [ "$actual_hash" != "$expected_hash" ]; then
+        echo "  ⚠ $name  hash mismatch (expected $expected_hash, got $actual_hash)"
+      fi
+    elif command -v shasum >/dev/null 2>&1; then
+      local actual_hash
+      actual_hash="$(shasum -a 256 "$target/SKILL.md" 2>/dev/null | cut -d' ' -f1)" || true
+      if [ -n "$actual_hash" ] && [ "$actual_hash" != "$expected_hash" ]; then
+        echo "  ⚠ $name  hash mismatch (expected $expected_hash, got $actual_hash)"
+      fi
+    else
+      echo "  ⚠ $name  no sha256 tool available, skipping hash verify"
+    fi
+
+    echo "  + $name  installed"
+    installed=$((installed+1))
+  done < <(python3 -c "
+import json, sys
+with open('$lock') as f:
+    lock = json.load(f)
+for name, s in lock.get('skills', {}).items():
+    print(f'{name}|{s[\"source\"]}|{s[\"sourceType\"]}|{s[\"skillPath\"]}|{s[\"computedHash\"]}')
+")
+
+  rm -rf "$tmpdir"
+  echo "skills-sync: $installed installed, $present present, $failed failed"
+  return 0
+}
+
+usage() {
+  sed -n '2,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+main() {
+  local cmd="${1:-}"; shift || true
+  case "$cmd" in
+    panes)     cmd_panes "$@";;
+    agents)    cmd_agents "$@";;
+    name)      cmd_name "$@";;
+    enqueue)   cmd_enqueue "$@";;
+    dispatch)  cmd_dispatch "$@";;
+    status)    cmd_status "$@";;
+    report)    cmd_report "$@";;
+    checkpoint) cmd_checkpoint "$@";;
+    send-test) cmd_sendtest "$@";;
+    cancel)    cmd_cancel "$@";;
+    resolve)   cmd_resolve "$@";;
+    shell)     cmd_shell "$@";;
+    down)      cmd_down "$@";;
+    skills-sync) cmd_skillsync "$@";;
+    ""|-h|--help|help) usage;;
+    *) die "unknown command '$cmd' (see: aimux --help)";;
+  esac
+}
+
+main "$@"

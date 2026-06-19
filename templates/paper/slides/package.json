@@ -1,0 +1,9 @@
+{
+  "name": "paper-slides",
+  "version": "1.0.0",
+  "description": "Paper presentation deck scaffold for the paper profile — edit CONTENT in build_pptx.js, then make pptx",
+  "main": "build_pptx.js",
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

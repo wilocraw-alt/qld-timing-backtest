@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "managed": [
+    "CLAUDE.md",
+    "claude/",
+    "AIMemory/PROTOCOL.md",
+    "AIMemory/tmux-handoff.md",
+    "AIMemory/agents.md",
+    "AIMemory/briefs/",
+    "AIMemory/bin/",
+    "AIMemory/handoff_example.md",
+    "templates/",
+    ".claude/skills/",
+    "DESIGN.md",
+    "HARNESS-CHANGELOG.md",
+    "AGENTS.md",
+    "bin/harness-install",
+    "bin/harness-update",
+    "harness-manifest.json",
+    "QWEN.md",
+    "VERSION"
+  ],
+  "seed": [
+    "PROJECT.md",
+    "README.md",
+    "CHECKLIST.md",
+    ".env.example",
+    "AIMemory/agents.roster",
+    ".gitignore"
+  ],
+  "skipped": [
+    "AIMemory/work.log",
+    "AIMemory/.aimux/",
+    "AIMemory/tmp/",
+    "AIMemory/run-summary.json",
+    "AIMemory/run-summary/",
+    ".harness/"
+  ]
+}
