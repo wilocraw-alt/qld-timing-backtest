@@ -525,3 +525,9 @@ Resolved opencode nocap-regen request + antigravity nocap-tranche request.
 git bootstrap done (user-authorized): created PRIVATE repo wilocraw-alt/qld-timing-backtest, initial
 commit (138 files = full workspace incl. make_Harness scaffold + backtest project), branch renamed
 master→main per PROJECT.md. .gitignore excludes aimux runtime/handoffs/pycache/scaffold-zip.
+
+### 2026-06-19 09:51 | aimux | NOTE
+Checkpoint signalled (label=all-experiments-and-git-done) — dispatcher will snapshot the run-summary.
+
+### 2026-06-19 09:51 | aimux | NOTE
+run-summary snapshot: v002-20260619-0951-all-experiments-and-git-done.json (label=all-experiments-and-git-done); latest -> run-summary.json.

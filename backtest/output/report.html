@@ -1,0 +1,170 @@
+<title>QLD 투자 타이밍 전략, 정말 통했을까?</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#1a2230; --ink:#e8edf4; --sub:#9fb0c3;
+    --accent:#4da3ff; --good:#3ddc97; --bad:#ff6b6b; --warn:#ffce5a;
+    --line:#2a3647;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    line-height:1.7;-webkit-text-size-adjust:100%}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:clamp(24px,5vw,36px);line-height:1.25;margin:.2em 0 .1em;letter-spacing:-.02em}
+  .lede{color:var(--sub);font-size:clamp(15px,2.4vw,18px);margin:0 0 24px}
+  h2{font-size:clamp(19px,3.4vw,24px);margin:42px 0 12px;letter-spacing:-.01em;
+    border-left:4px solid var(--accent);padding-left:12px}
+  h3{font-size:16px;margin:20px 0 6px;color:var(--accent)}
+  p{margin:.5em 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .tl{border-color:var(--accent);background:linear-gradient(180deg,#1c2940,#1a2230)}
+  .tl b{color:var(--accent)}
+  small,.sub{color:var(--sub)}
+  .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:999px;
+    background:#243246;color:var(--sub);margin-right:6px}
+  ul{margin:.4em 0 .4em;padding-left:1.2em}
+  li{margin:.28em 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  /* bar chart */
+  .bars{margin:10px 0}
+  .row{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:14px}
+  .row .name{flex:0 0 132px;text-align:right;color:var(--sub)}
+  .row .track{flex:1;background:#121925;border-radius:7px;overflow:hidden;height:26px;position:relative}
+  .row .fill{height:100%;border-radius:7px;display:flex;align-items:center;justify-content:flex-end;
+    padding-right:8px;font-weight:700;font-size:12.5px;color:#06121f;white-space:nowrap}
+  .note{font-size:13px;color:var(--sub);margin-top:6px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:8px;display:block;overflow-x:auto}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--sub);font-weight:600;border-bottom:2px solid var(--line)}
+  .hl{background:#1c2940}
+  .k{color:var(--good)} .r{color:var(--bad)} .w{color:var(--warn)}
+  .step{display:flex;gap:12px;margin:10px 0}
+  .step .n{flex:0 0 30px;height:30px;border-radius:50%;background:var(--accent);color:#06121f;
+    font-weight:800;display:flex;align-items:center;justify-content:center}
+  .foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--sub);font-size:13px}
+</style>
+
+<div class="wrap">
+
+<span class="pill">백테스트 리포트</span><span class="pill">대상: QLD (나스닥100 2배 ETF)</span><span class="pill">2006–2026, 20년</span>
+<h1>“쌀 때 사고 비쌀 때 판다” 전략,<br>정말 돈을 더 벌었을까?</h1>
+<p class="lede">규칙대로 매수·매도 타이밍을 잡는 전략을 20년 실제 데이터로 시험(백테스트)해 봤습니다.
+결론부터 말하면 — <b>그냥 한 번 사서 묻어두는 것</b>이 훨씬 나았습니다. 왜 그런지 차근차근 풀어볼게요.</p>
+
+<div class="card tl">
+<h3 style="margin-top:0">⏱️ 30초 요약</h3>
+<ul>
+<li>$10,000을 20년 굴렸을 때: <b class="r">우리 전략 → 약 $34,000</b> vs <b class="k">그냥 사서 보유 → 약 $996,000</b></li>
+<li>전략이 진 이유는 타이밍이 ‘틀려서’가 아니라, <b>돈의 80%를 현금으로 깔고 앉아</b> 있었고 <b>오를 때마다 팔아서</b> 큰 상승을 놓쳤기 때문.</li>
+<li>QLD는 20년간 약 <b>100배</b> 오른 초강세 자산 — 이런 자산에선 “덜 사고 자주 파는” 전략이 손해.</li>
+<li>전략의 유일한 장점: <b>손실 폭(MDD)이 작았다</b>(−26% vs 그냥보유 −83%). 단, 이건 현금을 많이 들고 있어서 생긴 효과.</li>
+</ul>
+</div>
+
+<h2>1. 백테스트가 뭔가요?</h2>
+<p>“만약 20년 전에 이 규칙대로 투자했다면 지금 얼마가 됐을까?”를 <b>과거 실제 주가 데이터</b>로 계산해 보는 것입니다.
+타임머신은 없으니, 과거 가격을 하루씩 돌려보며 규칙이 시키는 대로 사고팔아 최종 잔고를 셉니다.
+미래를 미리 본 것처럼 계산하면 반칙이라, 그날그날 ‘그 시점까지 알 수 있는 정보’만 쓰도록 엄격히 검증했습니다.</p>
+<p class="sub">대상 종목 <b>QLD</b>는 나스닥100 지수의 <b>하루 등락을 2배로</b> 따라가는 ETF입니다. 많이 오르지만 떨어질 때도 2배로 아픕니다.</p>
+
+<h2>2. 우리가 시험한 전략 — 말로 풀어보면</h2>
+<p>핵심 아이디어는 <b>“쌀 때 나눠 사고, 충분히 오르면 나눠 팔고, 대세가 꺾이면 절반 빼자”</b> 입니다. 구체적인 규칙은 5가지예요.</p>
+
+<div class="step"><div class="n">1</div><div><b>고점 대비 떨어지면 산다 (저가 매수)</b><br>
+<span class="sub">사상 최고가보다 −10% 빠지면 1차 매수, −15%면 2차 매수. “비싸지 않을 때 담는다”는 뜻.</span></div></div>
+<div class="step"><div class="n">2</div><div><b>바닥 찍고 반등하면 산다 (반등 매수)</b><br>
+<span class="sub">‘제대로 형성된’ 직전 저점에서 +10% 오르면 3차, +20%면 4차 매수. 하루하루 출렁임에 속지 않으려고, 저점은 앞뒤로 충분한 기간(약 한 달)을 두고 확정합니다.</span></div></div>
+<div class="step"><div class="n">3</div><div><b>충분히 벌면 나눠 판다 (익절)</b><br>
+<span class="sub">내 평균 매수가보다 +20% 오르면 절반 팔고, +40%면 나머지도 판다. “먹을 만큼 먹고 나온다”.</span></div></div>
+<div class="step"><div class="n">4</div><div><b>대세 하락이면 절반 뺀다 (방어)</b><br>
+<span class="sub">200일 평균선(장기 추세선)을 5일 연속 밑돌면 ‘큰 하락장’으로 보고 보유 주식의 절반을 매도.</span></div></div>
+<div class="step"><div class="n">5</div><div><b>천천히, 현금을 넉넉히 (자금 관리)</b><br>
+<span class="sub">한 번에 전 재산의 10%($1,000)씩만 매수. 처음 설정은 하루 최대 $1,000까지만. → 항상 현금을 많이 남겨 둠.</span></div></div>
+
+<p class="note">초기 자본 $10,000, 설정값 n=5, m=50%, a=10%, b=15%, c=20%, d=40%, e=10%, f=20%.</p>
+
+<h2>3. 결과 — 전략 vs 그냥 사기</h2>
+<p>$10,000으로 20년. 세 가지를 비교했습니다. 숫자 차이가 워낙 커서 막대는 <b>로그(배수) 기준</b>으로 그렸어요(칸이 한 칸 늘면 약 3배).</p>
+<div class="card bars">
+<div class="row"><div class="name">그냥 한 번에 사기</div><div class="track"><div class="fill" style="width:100%;background:var(--good)">$995,647 (약 100배)</div></div></div>
+<div class="row"><div class="name">1/100씩 나눠 사기</div><div class="track"><div class="fill" style="width:80%;background:#5fc9e8">$413,596 (약 41배)</div></div></div>
+<div class="row"><div class="name">우리 전략</div><div class="track"><div class="fill" style="width:42%;background:var(--bad)">$34,192 (약 3.4배)</div></div></div>
+<div class="note">‘그냥 한 번에 사기’ = 첫날 전액 매수 후 20년 보유. ‘1/100씩’ = 전체 기간에 걸쳐 100번 나눠 매수(적립식).</div>
+</div>
+<p>요약하면, 정교한 규칙 전략이 가장 단순한 “사서 묻어두기”에 <b>크게 졌습니다</b>. 위험 대비 수익(샤프지수)으로 봐도 전략 0.70 &lt; 그냥보유 0.75로 역시 열세였습니다.</p>
+
+<h2>4. 왜 이렇게 차이가 났을까?</h2>
+<div class="grid">
+<div class="card"><h3>① 현금을 너무 깔고 앉았다</h3>
+<p class="sub">전략은 20년 평균 <b>약 81%를 현금</b>으로 들고 있었습니다. 시장이 오르는 동안 정작 주식엔 20%만 타고 있었으니, 100배 상승의 대부분을 ‘구경’만 한 셈.</p></div>
+<div class="card"><h3>② 오를 때마다 팔아버렸다</h3>
+<p class="sub">+20%, +40% 익절 규칙이 큰 상승의 초입에서 자꾸 빠져나오게 만들었습니다. 익절 규칙만 꺼도 최종 자산이 <b>2배 이상</b>($75,253)으로 뛰었습니다.</p></div>
+<div class="card"><h3>③ 조정 때 팔고, 재상승을 놓쳤다</h3>
+<p class="sub">200일선 방어 매도는 하락은 줄여주지만, 잠깐 빠졌다 다시 오르는 구간에서 팔아버려 회복 상승을 못 탔습니다.</p></div>
+<div class="card"><h3>④ 상대가 너무 강했다</h3>
+<p class="sub">QLD는 20년간 약 100배 오른 ‘초우상향’ 자산. 이런 자산에선 “쌀 때 사고 비쌀 때 판다”가 오히려 발목을 잡습니다. 그냥 들고 있는 게 정답이었던 시장.</p></div>
+</div>
+
+<h2>5. 규칙을 하나씩 빼보면 (어떤 규칙이 범인?)</h2>
+<p>각 규칙을 하나씩 꺼서 다시 돌려봤습니다(이걸 ‘ablation’이라고 해요). 최종 자산이 <b class="k">올라가면</b> 그 규칙이 ‘수익을 깎고 있던’ 것이고, <b class="r">내려가면</b> ‘도움이 되던’ 규칙입니다.</p>
+<div class="card bars">
+<div class="row"><div class="name">기준 전략(전부)</div><div class="track"><div class="fill" style="width:50%;background:#6b7b90">$34,192</div></div></div>
+<div class="row"><div class="name">익절 끄기</div><div class="track"><div class="fill" style="width:78%;background:var(--good)">$75,382 ▲</div></div></div>
+<div class="row"><div class="name">200일선 매도 끄기</div><div class="track"><div class="fill" style="width:68%;background:var(--good)">$51,011 ▲</div></div></div>
+<div class="row"><div class="name">고점매수 끄기</div><div class="track"><div class="fill" style="width:45%;background:var(--warn)">$28,094 ▼</div></div></div>
+<div class="row"><div class="name">반등매수 끄기</div><div class="track"><div class="fill" style="width:30%;background:var(--bad)">$15,268 ▼▼</div></div></div>
+</div>
+<ul>
+<li><b>익절·200일선 매도</b>를 끄면 수익이 오름 → 이 ‘파는 규칙들’이 상승장에서 수익을 깎고 있었음.</li>
+<li><b>반등·고점 매수</b>를 끄면 수익이 떨어짐 → 그나마 ‘사는 규칙들’이 돈을 시장에 넣어줘서 도움이 됐음. 특히 ‘반등 매수’가 자금 투입의 핵심.</li>
+</ul>
+
+<h2>6. “더 과감하게 사면 어땠을까?” 추가 실험</h2>
+<p>그래서 “돈을 더 빨리, 더 많이 넣으면?”을 시험했습니다.</p>
+<div class="card">
+<p><b>하루 매수 한도를 없애고</b>, 한 번에 사는 금액(트랜치)을 키웠더니 — 수익이 뚜렷이 올랐습니다.</p>
+<div class="bars">
+<div class="row"><div class="name">한 번에 $1,000</div><div class="track"><div class="fill" style="width:40%;background:#6b7b90">$34,192 · 현금81%</div></div></div>
+<div class="row"><div class="name">한 번에 $2,500</div><div class="track"><div class="fill" style="width:62%;background:#5fc9e8">$68,810 · 현금69%</div></div></div>
+<div class="row"><div class="name">한 번에 $5,000</div><div class="track"><div class="fill" style="width:85%;background:var(--good)">$125,033 · 현금61%</div></div></div>
+</div>
+<p class="note">단, 수익이 오르는 만큼 최대 낙폭(MDD)도 −25% → −49%로 커졌습니다. ‘더 벌기 = 더 출렁임’ 맞바꿈.</p>
+</div>
+<p>또 흥미로운 점: <b>‘하루 한도’만 없애는 건 거의 효과가 없었습니다</b>(+0.4%). 진짜 레버(손잡이)는 “하루 한도”가 아니라 <b>한 번에 얼마나 시장에 넣느냐(=현금을 얼마나 줄이느냐)</b>였습니다.</p>
+
+<h2>7. 그래서, 교훈은?</h2>
+<div class="card">
+<ul>
+<li><b>강한 우상향 자산(레버리지 ETF 등)에서는</b> 잦은 매도·과한 현금 보유가 오히려 독이 될 수 있다. “시간이 약”인 시장이었다.</li>
+<li><b>전략의 진짜 가치는 ‘하락 방어’</b>에 있었다(낙폭 −26% vs −83%). 폭락을 못 견디는 투자자에겐 의미 있는 장점.</li>
+<li>수익을 키우는 손잡이 순서: <b>투입 규모↑ → 익절 완화 → 방어매도 완화</b>. 단 전부 <b>낙폭 증가</b>와 맞바꿈.</li>
+<li>이 결과는 <b>‘QLD의 지난 20년’이라는 특정 상황</b>의 답이다. 횡보장·하락장이나 다른 종목에선 전략의 방어력이 빛날 수 있다.</li>
+</ul>
+</div>
+<p class="sub">※ 본 자료는 과거 데이터 기반 분석이며 미래 수익을 보장하지 않습니다. 투자 권유가 아닙니다.</p>
+
+<h2>부록 — 전체 숫자</h2>
+<table>
+<thead><tr><th>구분</th><th>최종자산</th><th>연복리(CAGR)</th><th>최대낙폭</th><th>평균현금</th><th>거래수</th></tr></thead>
+<tbody>
+<tr class="hl"><td>우리 전략(full)</td><td>$34,192</td><td>6.3%</td><td>25.3%</td><td>81%</td><td>290</td></tr>
+<tr><td>· 익절 끄기</td><td>$75,382</td><td>10.6%</td><td>42.3%</td><td>50%</td><td>203</td></tr>
+<tr><td>· 200일선매도 끄기</td><td>$51,011</td><td>8.5%</td><td>64.8%</td><td>74%</td><td>251</td></tr>
+<tr><td>· 고점매수 끄기</td><td>$28,094</td><td>5.3%</td><td>22.1%</td><td>83%</td><td>234</td></tr>
+<tr><td>· 반등매수 끄기</td><td>$15,268</td><td>2.1%</td><td>9.7%</td><td>93%</td><td>108</td></tr>
+<tr><td>익절 +100%/+200%로</td><td>$71,235</td><td>10.3%</td><td>42.5%</td><td>56%</td><td>209</td></tr>
+<tr><td>한도無·1회 $5,000</td><td>$125,033</td><td>13.5%</td><td>49.0%</td><td>61%</td><td>282</td></tr>
+<tr class="hl"><td>그냥 한 번에 사기</td><td>$995,647</td><td>25.9%</td><td>83.1%</td><td>0%</td><td>1</td></tr>
+<tr><td>1/100씩 나눠 사기</td><td>$413,596</td><td>20.5%</td><td>63.0%</td><td>34%</td><td>100</td></tr>
+</tbody>
+</table>
+<p class="note">QLD 조정주가: 2006년 약 $0.98 → 2026년 약 $97.9 (≈100배). 초기자본 $10,000, 기간 2006-06-21~2026-06-18.</p>
+
+<div class="foot">
+QLD 규칙기반 투자시점 전략 백테스트 · 데이터 yfinance(조정종가) · 순수 파이썬 재현 가능 분석<br>
+검증 통과: 미래참조 없음 · 일/자산 정합성 · 비교군 교차검증.
+</div>
+
+</div>
