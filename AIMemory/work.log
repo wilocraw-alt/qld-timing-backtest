@@ -1047,3 +1047,9 @@ Manager RESOLVED req 20260619-143057-18747-28188 out-of-band: unit verified & ac
   judgment: ACCEPTED — CSV matches manager's independent run exactly (imm_QLD $1,097,738; TQQQ100 $2,552,234; TQQQ60/UPRO40 $1,702,336). report: 0 horizontal tables, OOS A/B + cost sensitivity + honest risk/overfit caveats present. Fixed 1 muddled OOS-B/TLT explanatory line.
   artifacts: results_portfolio.csv, equity_portfolio.png, report_portfolio_ko.txt. Task COMPLETE.
   FINAL ANSWER: 로테이션 전부 패배; 적립QLD 초과는 '레버리지 계속보유'(TQQQ/UPRO)뿐 — OOS robust지만 위험조정(Sharpe) 개선X, MDD 74~82%.
+
+[2026-06-19 16:10] NOTE claude-opus-4-8(manager) — SOXL(반도체 3x) 추가 재실행 (manager 직접: 작은 확장+검증, 워커 미사용)
+  SOXL 데이터 2010-03~ ($0.60->$279, ~465x). portfolio_run.py 유니버스+3 SOXL전략 추가, 보고서 내러티브 갱신.
+  FULL cost0: SOXL단독 $7,997,903(+629%, MDD90%) | TQQQ50/SOXL50 $6,243,990(Sharpe0.67 최고, MDD85%) | 3x균등 $3,689,827 | TQQQ단독 $2,552,234 | QLD $1,097,738
+  OOS A/B 둘 다 SOXL계열 1-3위(robust). P2_xsec_mom은 SOXL편입으로 $404k->$802k 상승.
+  핵심: 레버리지↑=원수익↑; TQQQ/SOXL 블렌드는 Sharpe까지 개선(분산); 단 MDD 85-90%+섹터집중(반도체 사후확신) 위험. 보고서에 솔직 명시.
