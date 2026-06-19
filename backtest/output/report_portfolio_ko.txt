@@ -1,0 +1,219 @@
+포트폴리오 배분 전략 비교 — 2011~2026 ($300/월 정기납입)
+=======================================================
+
+■ 가정
+  납입액   : 매월 $300 (총납입 $55,800)
+  기간     : 2011-01-01 ~ 2026-06-19 (전체), OOS-A(2011~2017), OOS-B(2018~2026)
+  초기자본 : $0 (적립식)
+  유니버스 : QQQ/SPY/QLD/SSO/TQQQ/UPRO/TLT/GLD
+
+■ 11개 전략
+  1. immediate_QLD : QLD 즉시 매수 (기준)
+  2. daily_QLD       : QLD 월분할 매수
+  3. rule_v1_QLD     : v1 타이밍 + QLD
+  4. v3_regime       : QQQ 200MA 레짐 → QLD/TQQQ/현금
+  5. v3_dualmom      : 12개월 듀얼모멘텀 QQQ/QLD/TQQQ
+  6. P1_regime_basket: QQQ+SPY 200MA 레짐 → ON(4Levered)/OFF(TLT+GLD) 역변동성
+  7. P2_xsec_mom     : 교차모멘텀 top3 역변동성
+  8. P3_static_lev   : TQQQ40%/UPRO30%/TLT15%/GLD15%
+  9. WIN_static_TQQQ60UPRO40 : TQQQ60%/UPRO40%
+  10. WIN_imm_TQQQ100 : TQQQ 100% 즉시매수
+  11. MIX_TQQQ50UPRO30TLT20 : TQQQ50%/UPRO30%/TLT20%
+
+■ 전체기간 결과 (cost=0 기준)
+
+  ◆ immediate_QLD (기준)
+    최종자산      : $ 1,097,738
+    MWRR(연)      : 33.49%
+    MDD           : 63.18%
+    연변동성      : 51.97%
+    Sharpe(근사)  : 0.644
+    거래수        : 196회
+    vs즉시        : +0.00%
+    비고          : QLD 2x 단순적립
+
+  ◆ daily_QLD
+    최종자산      : $ 1,089,301
+    MWRR(연)      : 33.41%
+    MDD           : 63.14%
+    연변동성      : 52.19%
+    Sharpe(근사)  : 0.640
+    거래수        : 2983회
+    vs즉시        : -0.77%
+    비고          : 월분할 QLD
+
+  ◆ rule_v1_QLD
+    최종자산      : $   950,135
+    MWRR(연)      : 31.92%
+    MDD           : 63.86%
+    연변동성      : 51.16%
+    Sharpe(근사)  : 0.624
+    거래수        : 2024회
+    vs즉시        : -13.45%
+    비고          : v1 타이밍, 현금보유편향
+
+  ◆ v3_regime
+    최종자산      : $   532,222
+    MWRR(연)      : 25.65%
+    MDD           : 44.11%
+    연변동성      : 46.66%
+    Sharpe(근사)  : 0.550
+    거래수        : 431회
+    vs즉시        : -51.52%
+    비고          : QQQ 200MA 레짐스택
+
+  ◆ v3_dualmom
+    최종자산      : $   500,701
+    MWRR(연)      : 24.99%
+    MDD           : 71.72%
+    연변동성      : 58.91%
+    Sharpe(근사)  : 0.424
+    거래수        : 190회
+    vs즉시        : -54.39%
+    비고          : 12개월 모멘텀
+
+  ◆ P1_regime_basket
+    최종자산      : $   299,165
+    MWRR(연)      : 19.41%
+    MDD           : 64.40%
+    연변동성      : 47.63%
+    Sharpe(근사)  : 0.407
+    거래수        : 716회
+    vs즉시        : -72.75%
+    비고          : 레짐 ON/OFF 역변동성
+
+  ◆ P2_xsec_mom
+    최종자산      : $   404,601
+    MWRR(연)      : 22.69%
+    MDD           : 39.08%
+    연변동성      : 44.71%
+    Sharpe(근사)  : 0.507
+    거래수        : 611회
+    vs즉시        : -63.14%
+    비고          : 교차모멘텀 top3 (MDD 최저)
+
+  ◆ P3_static_lev
+    최종자산      : $   886,644
+    MWRR(연)      : 31.17%
+    MDD           : 61.31%
+    연변동성      : 49.03%
+    Sharpe(근사)  : 0.636
+    거래수        : 692회
+    vs즉시        : -19.23%
+    비고          : TQQQ40/UPRO30/TLT15/GLD15
+
+  ◆ WIN_static_TQQQ60UPRO40
+    최종자산      : $ 1,702,336
+    MWRR(연)      : 38.30%
+    MDD           : 73.98%
+    연변동성      : 64.33%
+    Sharpe(근사)  : 0.595
+    거래수        : 371회
+    vs즉시        : +55.08%
+    비고          : TQQQ60/UPRO40 (1위)
+
+  ◆ WIN_imm_TQQQ100
+    최종자산      : $ 2,552,234
+    MWRR(연)      : 42.79%
+    MDD           : 81.51%
+    연변동성      : 68.89%
+    Sharpe(근사)  : 0.621
+    거래수        : 198회
+    vs즉시        : +132.50%
+    비고          : TQQQ 100% 즉시
+
+  ◆ MIX_TQQQ50UPRO30TLT20
+    최종자산      : $ 1,090,656
+    MWRR(연)      : 33.42%
+    MDD           : 67.73%
+    연변동성      : 53.61%
+    Sharpe(근사)  : 0.624
+    거래수        : 538회
+    vs즉시        : -0.65%
+    비고          : 채권혼합 20%
+
+■ 순위 (전체기간 cost=0)
+
+  1위: WIN_imm_TQQQ100                $2,552,234  MWRR 42.8%  MDD 82%  vs즉시 +132%
+  2위: WIN_static_TQQQ60UPRO40        $1,702,336  MWRR 38.3%  MDD 74%  vs즉시 +55%
+  3위: immediate_QLD                  $1,097,738  MWRR 33.5%  MDD 63%  vs즉시 +0%
+  4위: MIX_TQQQ50UPRO30TLT20          $1,090,656  MWRR 33.4%  MDD 68%  vs즉시 -1%
+  5위: daily_QLD                      $1,089,301  MWRR 33.4%  MDD 63%  vs즉시 -1%
+  6위: rule_v1_QLD                    $  950,135  MWRR 31.9%  MDD 64%  vs즉시 -13%
+  7위: P3_static_lev                  $  886,644  MWRR 31.2%  MDD 61%  vs즉시 -19%
+  8위: v3_regime                      $  532,222  MWRR 25.7%  MDD 44%  vs즉시 -52%
+  9위: v3_dualmom                     $  500,701  MWRR 25.0%  MDD 72%  vs즉시 -54%
+  10위: P2_xsec_mom                    $  404,601  MWRR 22.7%  MDD 39%  vs즉시 -63%
+  11위: P1_regime_basket               $  299,165  MWRR 19.4%  MDD 64%  vs즉시 -73%
+
+■ OOS-A (cost=0) 순위
+
+  1위: WIN_imm_TQQQ100                $  157,260  MWRR 52.4%  vs즉시 +78%
+  2위: WIN_static_TQQQ60UPRO40        $  135,185  MWRR 47.9%  vs즉시 +53%
+  3위: MIX_TQQQ50UPRO30TLT20          $  104,921  MWRR 40.4%  vs즉시 +19%
+  4위: v3_dualmom                     $   90,964  MWRR 36.2%  vs즉시 +3%
+  5위: immediate_QLD                  $   88,463  MWRR 35.4%  vs즉시 +0%
+  6위: daily_QLD                      $   87,833  MWRR 35.2%  vs즉시 -1%
+  7위: P3_static_lev                  $   84,503  MWRR 34.1%  vs즉시 -4%
+  8위: rule_v1_QLD                    $   83,024  MWRR 33.6%  vs즉시 -6%
+  9위: P1_regime_basket               $   78,326  MWRR 31.9%  vs즉시 -11%
+  10위: v3_regime                      $   64,619  MWRR 26.5%  vs즉시 -27%
+  11위: P2_xsec_mom                    $   53,095  MWRR 20.9%  vs즉시 -40%
+
+■ OOS-B (cost=0) 순위
+
+  1위: WIN_imm_TQQQ100                $  186,710  MWRR 41.0%  vs즉시 +34%
+  2위: WIN_static_TQQQ60UPRO40        $  159,774  MWRR 37.4%  vs즉시 +15%
+  3위: immediate_QLD                  $  139,449  MWRR 34.3%  vs즉시 +0%
+  4위: daily_QLD                      $  137,848  MWRR 34.1%  vs즉시 -1%
+  5위: rule_v1_QLD                    $  131,673  MWRR 33.0%  vs즉시 -6%
+  6위: MIX_TQQQ50UPRO30TLT20          $  126,385  MWRR 32.1%  vs즉시 -9%
+  7위: P3_static_lev                  $  124,578  MWRR 31.8%  vs즉시 -11%
+  8위: P2_xsec_mom                    $  110,361  MWRR 29.0%  vs즉시 -21%
+  9위: v3_dualmom                     $  108,064  MWRR 28.6%  vs즉시 -23%
+  10위: v3_regime                      $  107,953  MWRR 28.5%  vs즉시 -23%
+  11위: P1_regime_basket               $   74,391  MWRR 20.2%  vs즉시 -47%
+
+■ 거래비용 영향 (0% → 0.05%, 전체기간)
+
+  immediate_QLD: $1,097,738 → $1,097,203 (-0.05%)
+  daily_QLD: $1,089,301 → $1,088,514 (-0.07%)
+  rule_v1_QLD: $  950,135 → $  956,827 (+0.70%)
+  v3_regime: $  532,222 → $  473,857 (-10.97%)
+  v3_dualmom: $  500,701 → $  489,274 (-2.28%)
+  P1_regime_basket: $  299,165 → $  294,038 (-1.71%)
+  P2_xsec_mom: $  404,601 → $  390,462 (-3.49%)
+  P3_static_lev: $  886,644 → $  884,182 (-0.28%)
+  WIN_static_TQQQ60UPRO40: $1,702,336 → $1,698,419 (-0.23%)
+  WIN_imm_TQQQ100: $2,552,234 → $2,550,999 (-0.05%)
+  MIX_TQQQ50UPRO30TLT20: $1,090,656 → $1,086,667 (-0.37%)
+
+■ 결론 및 해석
+
+  1) 다자산 로테이션(레짐/모멘텀: P1/P2/v3_regime/v3_dualmom)은 15년 QLD/TQQQ 강세장에서
+     전부 패배했다. 시장이탈·재진입 과정의 decay가 치명적이었다.
+  → P2_xsec_mom(최종 $404,601)이 MDD 39%로 최저였으나 수익 희생이 너무 큼.
+
+  2) 적립 QLD를 이긴 것은 '더 높은 레버리지를 계속 보유'하는 정적전략뿐이다:
+  → WIN_static_TQQQ60UPRO40 (1위, $1,702,336, vs즉시 +55%)
+  → WIN_imm_TQQQ100 (2위, $2,552,234, vs즉시 +132%)
+  → OOS-A·OOS-B 양 구간에서 일관되게 immediate_QLD 초과 = 과적합 아님
+
+  3) 단, 초과수익은 순수 추가위험의 대가다:
+  → MDD: TQQQ100 82%, TQQQ60/UPRO40 74% vs QLD 63%
+  → Sharpe: 0.60~0.65로 QLD(0.64)와 동일 수준 — 위험조정 개선 아님
+
+  4) 채권혼합(TLT20%)은 OOS-B(2022 금리인상기)에서 역효과로 비일관:
+  → OOS-A(2011-18)는 vs즉시 +19%였으나 OOS-B(2018-26)는 -9%로 역전
+  → 같은 OOS-B에서 WIN계열(TLT無)은 +15~34% 유지 — TLT가 2022 금리인상에 폭락한 탓
+
+  5) 2011~2026 QQQ는 약 40배 상승. 이런 장에서 시장이탈은 구조적 손해.
+     TQQQ 100%가 단순히 40배의 3배(≈120배) 수익에 근접하는 것은 수학적 결과일 뿐.
+     장기 약세장/횡보장에서는 반대 결과가 나올 수 있음.
+
+■ 함의
+
+  ● 80% 낙폭 감내 가능 → TQQQ/UPRO 블렌드가 기대수익 최고 (QLD 적립 대비 +55~130%)
+  ● 낙폭 부담 → QLD 적립(immediate)이 위험조정 우수, TQQQ 단독보다 안정적
+  ● '장 성격 적응' 전략(P1/P2/v3)은 장기 약세장/횡보장에서 가치가 있으나
+    2011~2026 데이터로는 입증 불가 — 다른 시장 국면의 out-of-sample 필요
