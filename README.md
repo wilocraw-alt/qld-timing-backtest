@@ -17,7 +17,7 @@
 
 - **데일리 어드바이저**: `backtest/live/daily_advisor.py` 스크립트를 통해 매일 전일 종가 기준으로 "오늘 미국장에 살 주식과 수량"을 자동 산출합니다.
 - **웹사이트 및 PWA**: GitHub Actions를 통해 매일 자동으로 갱신되는 전용 웹페이지를 제공합니다. 휴대폰 브라우저에서 아래 URL에 접속한 뒤 '홈 화면에 추가'를 선택하면 standalone 앱(PWA)처럼 편리하게 오늘의 신호와 목표 비중을 조회할 수 있습니다.
-- **배포 URL**: https://wilocraw-alt.github.io/qld-timing-backtest/ <!-- 배포 후 확정 -->
+- **배포 URL**: https://wilocraw-alt.github.io/qld-timing-backtest/
 
 ---
 
