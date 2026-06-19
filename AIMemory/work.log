@@ -1118,3 +1118,69 @@ Manager RESOLVED req 20260619-160549-6740-5837 out-of-band: unit verified & acce
   EV(패널확률 가중): QLD+추세이탈 +14.5% > 3x+추세이탈 +12.8% > 바벨 +12.0% > QLD보유 +11.5% > 무방비3x -1.0%.
   무방비 3x는 강세확률 75%+ 일 때만 1위(패널 42%와 거리 큼). 추천=추세관리형 바벨(핵심 QLD 60% + 위성 3x 40% w/200MA exit, DCA).
   신규: recommendation.py, report_recommendation_ko.txt, report_panel_ko.md, dotcom_scenario.py, report_dotcom_ko.txt. → commit & push.
+
+### 2026-06-19 16:30 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-163032-24155-7286 handoff=AIMemory/handoff_panel2.claude-opus-4-8.md roles=OPINION
+
+### 2026-06-19 16:30 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-163032-24172-22884 handoff=AIMemory/handoff_panel2.claude-opus-4-8.md roles=OPINION
+
+[2026-06-19 18:10] HANDOFF claude-opus-4-8(manager) -> antigravity, opencode (OPINION 패널2)
+  topic: 120일선 + 휩쏘완화(buffer/monthly/confirm) 실측데이터 근거로 '최종 추천전략' 개별 설계.
+  data: SOXL 120 monthly $10.74M(MDD71%)·buffer3% $8.5M(MDD72%) > 무규칙 $8.0M(MDD90%); plain 166전환 휩쏘참사. 2022폭락 buffer3% -4% vs 무규칙 -56%.
+  ma_whipsaw.py (confirm 버그 수정 후 재실행).
+
+### 2026-06-19 16:30 | aimux | NOTE
+Dispatched request id=20260619-163032-24155-7286 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 16:30 | aimux | NOTE
+Dispatched request id=20260619-163032-24172-22884 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 16:30 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-163032-24155-7286) — held, NOT auto-answered; escalated to the human, do not reassign.
+
+### 2026-06-19 14:37 | opencode | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_panel2.claude-opus-4-8.md. Action=OPINION (최종 추천전략).
+
+### 2026-06-19 14:37 | opencode | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/panel2-opencode.md
+
+### 2026-06-19 14:37 | opencode | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_panel2.claude-opus-4-8.md.
+Completed: 최종 추천전략 (SOXL60%/QLD40% + 120일선 monthly + buffer3%). Enqueued.
+
+### 2026-06-19 16:31 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-163118-25829-29538 handoff=AIMemory/panel2-opencode.md roles=OPINION
+
+### 2026-06-19 16:31 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_panel2.claude-opus-4-8.md. Acting on action items (OPINION).
+
+### 2026-06-19 16:31 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/panel2-antigravity.md
+
+### 2026-06-19 16:31 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_panel2.claude-opus-4-8.md.
+Completed: Final strategy recommendation written. SOXL core 60% + QLD satellite 40%, SOXX 120-day buffer±3% monthly regime rule. See AIMemory/panel2-antigravity.md.
+
+### 2026-06-19 16:31 | aimux | NOTE
+Dispatched response id=20260619-163118-25829-29538 -> tmux-pane:manager (%0).
+
+### 2026-06-19 16:31 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-163127-26310-9428 handoff=AIMemory/panel2-antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 16:31 | aimux | NOTE
+Manager RESOLVED req 20260619-163032-24172-22884 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 16:34 | aimux | NOTE
+Manager RESOLVED req 20260619-163032-24155-7286 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+[2026-06-19 18:35] NOTE claude-opus-4-8(manager) panel2 ACCEPTED (opencode+antigravity) — 둘 다 SOXL60/QLD40 + SOXL에 120 monthly+buffer3% 수렴(차이: QLD 규칙 유무).
+  매니저 독립검증이 패널 추정 반박:
+   - 'monthly+buffer3%' 결합신호는 SOXL 단독 강세 $2.21M/2022 -54% = 최악(두 필터 중첩→과도필터). 패널 추정($10.7M) 틀림.
+   - 단독 필터가 정답: monthly만 $10.74M(MDD71,2022 -31%) / buffer3%만 $8.5M(MDD72,2022 -4%).
+  결합 포트(SOXL60/QLD40) 실측: ①SOXLbuf3%+QLD무규칙 강세$5.54M MDD61% 2022 -8% / ③SOXLmonthly+QLD무규칙 $6.88M MDD62% 2022 -25% / ②둘다buf3% 2022 -2% MDD46%. 모두 '둘다무규칙'($5.24M MDD86%)보다 위험조정 우수.
+  최종 추천=① 균형안 + 틸트(③공격/②방어). 교훈: 휩쏘필터는 '하나만'(중첩 금지).
+
+[2026-06-19 19:00] NOTE claude-opus-4-8(manager) — 최종전략 보고서화 + commit. 패널 개별안 보존 + 매니저 검증 최종안.
+  최종 추천=① SOXL60(120 buffer±3% 매일)+QLD40(무규칙) DCA: 강세 $5.54M MDD61% / 2022 -8% / COVID +114%. 틸트 ③공격/②방어.
+  신규: ma_whipsaw.py, final_strategy.py, report_final_strategy_ko.md, panel2-{opencode,antigravity}.md.
