@@ -1,5 +1,9 @@
 # make_Harness
 
+> 📈 **이 저장소의 실제 프로젝트(레버리지 ETF 적립·타이밍 전략 연구) 문서는 [`RESEARCH.md`](RESEARCH.md)** 를 보세요.
+> 전체 연구 여정·발견·최종 추천 전략·데일리 어드바이저가 거기에 정리돼 있습니다.
+> (아래는 이 저장소가 생성된 스캐폴드(make_Harness) 자체 설명입니다.)
+
 Claude Code용 **프로젝트 부트스트랩 하네스** + **AIMemory tmux 멀티에이전트 오케스트레이션(aimux)**.
 
 > **이 README는 스캐폴드(make_Harness) 자체 설명입니다.**

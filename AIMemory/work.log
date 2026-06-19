@@ -1197,3 +1197,7 @@ Manager RESOLVED req 20260619-163032-24155-7286 out-of-band: unit verified & acc
 [2026-06-19 20:55] NOTE claude-opus-4-8(manager) — 어드바이저에 NYSE 휴장 캘린더 추가.
   pandas 규칙기반(_NYSEHolidays): 신정/MLK/Presidents/굿프라이데이/메모리얼/준틴스(2022~)/독립기념일/노동절/추수감사절/크리스마스, observance=nearest_workday. 콜럼버스·재향군인의날 제외.
   휴장일엔 적립·신호·리밸런싱 전부 보류(상태변경 없음), 헤더에 개장/휴장 표시. 2026 휴장일 9종 + 콜럼버스(개장)·주말 검증 통과. 오늘 2026-06-19=Juneteenth 휴장 정상 인식.
+
+[2026-06-20 NOTE] claude-opus-4-8(manager) — 전체 연구 종합 문서화.
+  RESEARCH.md 작성: 여정(v1→v2→정기납입→다자산→SOXL→닷컴→패널→추천→120일선/휩쏘→소수점→어드바이저), 핵심발견, 최종 추천전략, 파일가이드, 재현법, 면책.
+  README.md 최상단에 RESEARCH.md 안내 배너 추가(하네스 설명 보존). commit & push.
