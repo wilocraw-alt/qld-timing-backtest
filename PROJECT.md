@@ -35,7 +35,7 @@ QLD를 대상으로 백테스트 결과를 알려줘.
 
 - **이름**: qld-timing-backtest
 - **목적**: QLD 규칙기반 투자시점 전략 백테스트 + 규칙별 ablation 효과 및 2개 비교군 대비 성과 검증
-- **상태**: 계획(요구사항 확정, 설계 PROPOSE 진행)
+- **상태**: 완료 — 백테스트 연구(RESEARCH.md) + 라이브 PWA 웹사이트(https://wilocraw-alt.github.io/qld-timing-backtest/, GH Actions 매일 08:30 KST 자동갱신). **이어가기: `AIMemory/RESUME.claude-opus-4-8.md` 참조.**
 - **profile**: research  <!-- dev | research | docs | data | paper 중 택1. Claude가 인테이크에서 추천. paper=완료된 aimux 프로젝트의 AIMemory/를 입력으로 논문 작성 -->
 - **입력**: yfinance QLD 시세(전체기간) + 전략 파라미터(n,m,a,b,c,d,e,f / 초기자본 / 일상한)
 - **출력**: 백테스트 엔진(py) + 변형·비교군 결과 CSV + 자산곡선 플롯 + 한국어 요약 리포트
