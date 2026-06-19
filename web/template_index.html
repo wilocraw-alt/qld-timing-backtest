@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1d23">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<title>타이밍 wATH — 데일리 신호</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; background: #111318; color: #e0e2e6; padding: 16px; padding-bottom: 48px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px; letter-spacing: -0.3px; color: #e8eaed; }
+.subtitle { text-align: center; font-size: 12px; color: #9aa0a6; margin-bottom: 20px; }
+.card { background: #1a1d23; border-radius: 14px; padding: 18px; margin-bottom: 14px; border: 1px solid #2c2f36; }
+.card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: #9aa0a6; margin-bottom: 6px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 18px; border-radius: 100px; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; }
+.badge.on { background: #0d652d; color: #c6f0d6; }
+.badge.off { background: #3c4043; color: #9aa0a6; }
+.badge.neutral { background: #5c3b00; color: #fde293; }
+.signal-row { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.signal-meta { font-size: 13px; color: #9aa0a6; }
+.px-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+.px-item { background: #22252b; border-radius: 10px; padding: 12px; text-align: center; }
+.px-ticker { font-size: 12px; color: #9aa0a6; font-weight: 600; }
+.px-value { font-size: 20px; font-weight: 700; color: #e8eaed; margin-top: 2px; }
+.target-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.target-card { flex: 1; background: #22252b; border-radius: 10px; padding: 14px; text-align: center; }
+.target-pct { font-size: 28px; font-weight: 800; color: #e8eaed; }
+.target-ticker { font-size: 13px; color: #9aa0a6; margin-top: 2px; }
+.target-note { font-size: 11px; color: #f28b82; margin-top: 4px; }
+.ratio-bar { display: flex; align-items: center; gap: 4px; margin-top: 8px; height: 6px; position: relative; }
+.ratio-track { flex: 1; height: 6px; background: #2c2f36; border-radius: 3px; position: relative; overflow: visible; }
+.ratio-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.ratio-marker { position: absolute; top: -8px; width: 2px; height: 22px; background: #e8eaed; border-radius: 1px; }
+.ratio-marker.upper { background: #5f9b5f; }
+.ratio-marker.lower { background: #9b5f5f; }
+.ratio-label { font-size: 11px; color: #9aa0a6; }
+.conclusion { font-size: 13px; color: #c4c7cc; padding: 8px 0 4px; line-height: 1.6; }
+.meta-line { display: flex; justify-content: center; gap: 16px; font-size: 12px; color: #9aa0a6; margin-top: 4px; }
+.footer { text-align: center; font-size: 11px; color: #5f6368; margin-top: 28px; line-height: 1.6; }
+.footer a { color: #8ab4f8; text-decoration: none; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.status-dot.open { background: #34a853; }
+.status-dot.closed { background: #ea4335; }
+.loading { text-align: center; padding: 40px 0; color: #9aa0a6; font-size: 14px; }
+.btn-row { display: flex; gap: 10px; margin-top: 14px; }
+.btn-primary, .btn-secondary { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 0; border-radius: 10px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; min-height: 44px; -webkit-tap-highlight-color: transparent; text-decoration: none; }
+.btn-primary { background: #303134; color: #e8eaed; }
+.btn-primary:active { background: #404348; }
+.btn-primary:disabled { opacity: 0.5; }
+.btn-secondary { background: transparent; color: #8ab4f8; border: 1px solid #3c4043; }
+.btn-secondary:active { background: #1a1d23; }
+.toast { font-size: 12px; color: #f28b82; text-align: center; padding: 6px 0 0; }
+.check-time { font-size: 11px; color: #5f6368; text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>타이밍 wATH</h1>
+<div class="subtitle">SOXL60 + QLD40 — 데일리 추세 신호</div>
+
+<div id="app" class="loading">데이터 불러오는 중...</div>
+<div id="toast" class="toast" style="display:none"></div>
+<div id="checkTime" class="check-time" style="display:none"></div>
+
+<script>
+(function() {
+  const app = document.getElementById("app");
+  const toast = document.getElementById("toast");
+  const checkTime = document.getElementById("checkTime");
+  let cachedData = null;
+
+  async function loadData() {
+    try {
+      const res = await fetch("./data/latest.json?_=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const d = await res.json();
+      cachedData = d;
+      render(d);
+      const now = new Date();
+      checkTime.textContent = "마지막 확인: " + now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      checkTime.style.display = "block";
+      toast.style.display = "none";
+      return d;
+    } catch(e) {
+      if (cachedData) {
+        toast.textContent = "⚠️ 오프라인 — 캐시된 데이터 표시 중";
+        toast.style.display = "block";
+        return cachedData;
+      }
+      app.innerHTML = '<div class="card" style="text-align:center;padding:32px;color:#f28b82;">⚠️ 데이터를 불러올 수 없습니다<br><span style="font-size:12px;color:#9aa0a6">' + e.message + '</span></div>';
+    }
+  }
+
+  function render(d) {
+    const signal = d.signal, market = d.market, prices = d.prices;
+    const target = d.target, conclusion = d.conclusion;
+
+    const stateLabel = { ON: "매수", OFF: "현금", NEUTRAL: "관망" };
+    const badgeCls = { ON: "on", OFF: "off", NEUTRAL: "neutral" };
+    const s = signal.state;
+
+    const ratioPct = ((signal.ratio - 0.95) / 0.10 * 100);
+    const ratioClamped = Math.max(0, Math.min(100, ratioPct));
+
+    const updated = new Date(d.updated_at);
+    const timeStr = updated.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", month: "2-digit", day: "2-digit" });
+
+    app.innerHTML = ''
+      + '<div class="card">'
+      + '  <div class="card-label">오늘의 신호</div>'
+      + '  <div class="badge ' + badgeCls[s] + '">' + stateLabel[s] + '</div>'
+      + '  <div class="signal-row">'
+      + '    <span class="signal-meta">SOXX/120MA = ' + signal.ratio.toFixed(3) + '</span>'
+      + '    <span class="signal-meta">밴드 ±' + ((signal.upper - 1) * 100).toFixed(0) + '%</span>'
+      + '  </div>'
+      + '  <div class="ratio-bar">'
+      + '    <span class="ratio-label">0.95</span>'
+      + '    <div class="ratio-track">'
+      + '      <div class="ratio-fill" style="width:' + ratioClamped + '%;background:' + (s === "ON" ? "#34a853" : s === "OFF" ? "#ea4335" : "#f9ab00") + '"></div>'
+      + '      <div class="ratio-marker upper" style="left:' + ((signal.upper - 0.95) / 0.10 * 100) + '%"></div>'
+      + '      <div class="ratio-marker lower" style="left:' + ((signal.lower - 0.95) / 0.10 * 100) + '%"></div>'
+      + '    </div>'
+      + '    <span class="ratio-label">1.05</span>'
+      + '  </div>'
+      + '  <div class="btn-row">'
+      + '    <button class="btn-primary" onclick="window.__refresh()">🔄 새로고침</button>'
+      + '    <a class="btn-secondary" href="https://github.com/wilocraw-alt/qld-timing-backtest/actions/workflows/daily.yml" target="_blank" rel="noopener">⟳ 재계산</a>'
+      + '  </div>'
+      + '  <div style="font-size:11px;color:#5f6368;text-align:center;margin-top:6px">최신 시세로 재계산하려면 ⟳ 재계산 → GitHub에서 "Run workflow"</div>'
+      + '</div>'
+
+      + '<div class="card">'
+      + '  <div class="card-label">최신 가격</div>'
+      + '  <div class="px-grid">'
+      + '    <div class="px-item"><div class="px-ticker">SOXL</div><div class="px-value">$' + prices.SOXL.toFixed(2) + '</div></div>'
+      + '    <div class="px-item"><div class="px-ticker">SOXX</div><div class="px-value">$' + prices.SOXX.toFixed(2) + '</div></div>'
+      + '    <div class="px-item"><div class="px-ticker">QLD</div><div class="px-value">$' + prices.QLD.toFixed(2) + '</div></div>'
+      + '  </div>'
+      + '</div>'
+
+      + '<div class="card">'
+      + '  <div class="card-label">목표 배분</div>'
+      + '  <div class="target-row">'
+      + '    <div class="target-card">'
+      + '      <div class="target-pct">' + target.core_pct + '%</div>'
+      + '      <div class="target-ticker">' + target.core_ticker + '</div>'
+      + (s === "OFF" ? '<div class="target-note">→ 현금</div>' : "")
+      + '    </div>'
+      + '    <div class="target-card">'
+      + '      <div class="target-pct">' + target.satellite_pct + '%</div>'
+      + '      <div class="target-ticker">' + target.satellite_ticker + '</div>'
+      + '    </div>'
+      + '  </div>'
+      + '</div>'
+
+      + '<div class="card">'
+      + '  <div class="card-label">핵심 결론</div>'
+      + '  <div class="conclusion">' + conclusion + '</div>'
+      + '  <div style="margin-top:8px;font-size:12px"><a href="https://github.com/wilocraw-alt/qld-timing-backtest/blob/main/RESEARCH.md" target="_blank">📄 전체 연구 보기 →</a></div>'
+      + '</div>'
+
+      + '<div class="meta-line">'
+      + '  <span><span class="status-dot ' + (market.open ? "open" : "closed") + '"></span>' + (market.open ? "NYSE 개장" : "NYSE 휴장") + '</span>'
+      + '  <span>기준일 ' + d.ref_close + '</span>'
+      + '  <span>갱신 ' + timeStr + '</span>'
+      + '</div>'
+
+      + '<div class="footer">'
+      + '  ' + d.disclaimer + '<br><br>'
+      + '  <a href="https://github.com/wilocraw-alt/qld-timing-backtest" target="_blank">GitHub</a>'
+      + '</div>';
+  }
+
+  window.__refresh = function() {
+    loadData();
+  };
+
+  loadData();
+})();
+</script>
+</body>
+</html>

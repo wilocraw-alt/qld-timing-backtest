@@ -1,0 +1,15 @@
+{
+  "name": "타이밍 wATH — 데일리 신호",
+  "short_name": "wATH 신호",
+  "description": "SOXL60/QLD40 추세추종 전략 일일 신호",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111318",
+  "theme_color": "#1a1d23",
+  "icons": [
+    {"src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "./icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

@@ -1,149 +1,81 @@
-# make_Harness
+# qld-timing-backtest
 
-> 📈 **이 저장소의 실제 프로젝트(레버리지 ETF 적립·타이밍 전략 연구) 문서는 [`RESEARCH.md`](RESEARCH.md)** 를 보세요.
-> 전체 연구 여정·발견·최종 추천 전략·데일리 어드바이저가 거기에 정리돼 있습니다.
-> (아래는 이 저장소가 생성된 스캐폴드(make_Harness) 자체 설명입니다.)
-
-Claude Code용 **프로젝트 부트스트랩 하네스** + **AIMemory tmux 멀티에이전트 오케스트레이션(aimux)**.
-
-> **이 README는 스캐폴드(make_Harness) 자체 설명입니다.**
-> 이 폴더를 복사해 새 프로젝트를 시작하면, intake(`claude/intake.md`) 또는 `/ideate` 마지막 단계가
-> 이 파일을 **그 프로젝트용 README로 교체**합니다(템플릿: `templates/project/README.md`).
-> 스캐폴드 구조·동작 레퍼런스는 복사본에도 그대로 남는 `DESIGN.md`를 보세요.
-
-- 사용자 응답 언어: 한국어. 가이드 본문은 토큰·추론 효율을 위해 영어.
-- **설계·아키텍처·근거·전체 레퍼런스**: `DESIGN.md`.
-- 스캐폴드 개발 이력: `HARNESS-CHANGELOG.md`(T 시리즈).
+규칙 기반 레버리지 ETF 적립 및 타이밍 투자 전략의 백테스트 검증과 라이브 데일리 어드바이저 시스템입니다.
 
 ---
 
-## 1. 두 개의 축
+## 핵심 결론
 
-### (A) 프로젝트 가이드 하네스
-세션마다 Claude가 읽는 진입점과 단계별 가이드 모음.
-
-- `CLAUDE.md` — 항상 적용되는 규칙 + 단계 가이드 인덱스.
-- `PROJECT.md` — 프로젝트 정보(요청 메모 → 인테이크로 채움).
-- `claude/` — `core.md`, `intake/plan/implement/verify`, `profiles/{dev,research,docs,data}.md` 등 단계·유형별 가이드.
-
-### (B) AIMemory/aimux — tmux 멀티에이전트 오케스트레이션
-여러 AI 에이전트(claude·antigravity·opencode·qwen 등)를 tmux 패널로 띄우고, **매니저 1명이 사람과 대화하며 작업을 분해·위임**, 워커들이 수행해 결 과를 돌려주는 체계.
-
-- `AIMemory/PROTOCOL.md` — AICP(파일 기반 핸드오프 + append-only `work.log`) 규약. 진실의 원천.
-- `AIMemory/tmux-handoff.md` — 큐 기반 전달/회수 메커니즘 + 오케스트레이션 전략.
-- `AIMemory/agents.md` — 에이전트 역량·실패모드·노하우 원장(매니저가 읽고 갱신).
-- `AIMemory/bin/aimux` — 디스패처 엔진(큐·전달·상태).
-- `AIMemory/bin/aimux-up` — 세션 런처(매니저·워커 객관식 선택 + 역할 브리프 생성).
-- `AIMemory/agents.roster` — 매니저·워커 후보 풀(편집 가능한 단일 출처).
-- `AIMemory/briefs/{manager,worker}.md` — 역할 브리프 템플릿(기동 시 세션별로 렌더).
-- `AGENTS.md`(opencode·codex) / `AGENTS.md` / `QWEN.md` — 각 CLI가 시작 시 자동로드하는 **역할 중립** 브리프. 단독 실행 시 독립 에이전트로 동작하고, aimux 세션이면 pane에 붙는 ROLE 메시지가 이 파일을 덮어씀.
+- **강세장(2011~2026)**: 타이밍 및 로테이션 전략이 단순 보유(Buy & Hold)에 패배하며, 시장 이탈 자체가 손해를 야기했습니다.
+- **폭락장(2000 닷컴 시나리오)**: 무방비로 3배 레버리지를 보유할 경우 변동성 손실(Decay)로 인해 -97% 전멸 수준에 이르렀으나, 추세추종 타이밍 전략은 +147~339%로 역전 성과를 냈습니다.
+- **최종 추천 전략**: 강세장의 수익을 누리면서도 최악의 시장 붕괴에서 생존할 수 있도록 설계된 **SOXL 60%(120일선 ±3% 완충 밴드) + QLD 40% 월 $300 소수점 적립·리밸런싱** 전략을 제시합니다.
+- 상세한 분석 과정과 결론은 [RESEARCH.md](RESEARCH.md)에서 확인하실 수 있습니다.
 
 ---
 
-## 2. aimux 핵심 설계
+## 데일리 어드바이저 & 웹사이트
 
-- **큐 + 단일 디스패처**: 에이전트는 서로의 패널에 직접 paste하지 않고 `aimux enqueue`로 큐에 적재. 단일 디스패처만 전달 → 초인종 겹침 차단.
-- **idle 게이트 + 연속 idle 해제**: 타깃 패널이 idle이고 in-flight 잠금이 없을 때만 전달. 해제는 연속 idle streak 충족 시(`idle-stable`)만 → 바쁜 패널 덮어쓰기 방지.
-- **세션 격리**: 세션명 timestamp + 세션별 상태 디렉터리(`AIMemory/.aimux/<session>`) + `AIMUX_SESSION` 범위 pane 해석 → 동시 세션이 서로 간섭하지 않음.
-- **자동 통지**: 워커 요청이 응답 없이 해제되면(idle/timeout) 디스패처가 매니저에게 `notice` 자동 전송 — "idle ≠ 완료".
-- **라이브 피드**: dispatch 패널에 `＋ QUEUE → ▶ DELIVER → ✔ DONE` + `┄ p i d ┄` 보드 실시간 표시.
-- **상태기반 운영**: `aimux agents`(idle/busy·처리중)와 `agents.md`로 역량·가용성 기반 배정, 부실 결과 시 진단→적응→재시도→다른 idle 에이전트로 재위임.
-- **견고성**: 디스패처 PID lock + HUP 트랩(패널 종료 시 동반 종료) + `dispatch --force`(stale lock 회수).
-- **계측·논문화**: `aimux report`가 신뢰 가능한 `run-summary.json`(라운드·재배분·에이전트별 성공/실패·소요시간) 산출 → `paper` 프로파일(`claude/profiles/paper.md`)이 완료된 `AIMemory/`를 입력으로 LaTeX 논문화(`templates/paper/`). 상세: `DESIGN.md` §11.
+- **데일리 어드바이저**: `backtest/live/daily_advisor.py` 스크립트를 통해 매일 전일 종가 기준으로 "오늘 미국장에 살 주식과 수량"을 자동 산출합니다.
+- **웹사이트 및 PWA**: GitHub Actions를 통해 매일 자동으로 갱신되는 전용 웹페이지를 제공합니다. 휴대폰 브라우저에서 아래 URL에 접속한 뒤 '홈 화면에 추가'를 선택하면 standalone 앱(PWA)처럼 편리하게 오늘의 신호와 목표 비중을 조회할 수 있습니다.
+- **배포 URL**: https://wilocraw-alt.github.io/qld-timing-backtest/ <!-- 배포 후 확정 -->
 
 ---
 
-## 3. 빠른 시작
+## 빠른 시작 / 재현
 
+### 실행 환경
+- Python 3.8
+- 의존성 라이브러리: `pandas`, `numpy`, `yfinance`, `matplotlib`, `pyyaml`
+  > [!IMPORTANT]
+  > Python 3.8 환경에서 `yfinance` 임포트 오류를 방지하기 위해 `multitasking==0.0.11` 핀 고정을 강력히 권장합니다.
+
+### 실행 명령어
 ```bash
-# 단일 명령 수명주기(권장): 기동+attach → detach(Ctrl-b d) 시 종료 여부 질문
-#   finalize&종료 [Y] / 그대로 두기 [n] / 재접속 [a]   (일반 터미널에서 실행)
-AIMemory/bin/aimux shell
+# 의존성 라이브러리 설치
+pip install -r backtest/requirements.txt
 
-# 또는 단계별로:
-# 1) 후보 풀을 확인/수정 (AIMemory/agents.roster — [manager]/[worker] 섹션)
-# 2) 세션 기동 → 매니저 1명 객관식 선택 + 워커 다중 선택, 디스패처 패널 자동
-AIMemory/bin/aimux-up
+# 오늘 미국장 매매 신호 및 수량 미리보기 (상태 저장 안 함)
+python backtest/live/daily_advisor.py --dry-run
 
-# 상태 보기
-AIMemory/bin/aimux status      # 큐·디스패처
-AIMemory/bin/aimux agents      # 에이전트 idle/busy·처리중
-AIMemory/bin/aimux report --write          # 버전 run-summary 스냅샷(논문용 계측)
-AIMemory/bin/aimux checkpoint --label m1   # 마일스톤 신호 → 디스패처가 버전 스냅샷 자동 저장
-AIMemory/bin/aimux panes       # 패널 레지스트리
+# 정기납입 5개 전략 백테스트 실행
+python backtest/contrib_run.py
 
-# 완결·종료 (현재 세션만; shell 사용 시 detach 후 Y 한 번으로 대체)
-AIMemory/bin/aimux down --yes
+# 다자산 14개 전략 및 OOS 기간 검증 실행
+python backtest/portfolio_run.py
+
+# 2000년 닷컴 위기 재현 시나리오 백테스트 실행
+python backtest/dotcom_scenario.py
+
+# 확률가중 기반 전략 기대값 분석 실행
+python backtest/recommendation.py
+
+# 120일선/200일선 및 휩쏘 완화 변형 전략 비교 실행
+python backtest/ma_whipsaw.py
+
+# 최종 결합전략(SOXL60/QLD40) 4개 시나리오 검증 실행
+python backtest/final_strategy.py
 ```
 
-### 하네스 자체 업데이트 및 설치
-GitHub Release로부터 스캐폴드(make_Harness)를 새로 설치하거나 기존 프로젝트를 업데이트할 수 있습니다. 업스트림 저장소는 `HARNESS_REPO` 환경 변수 → `.harness/source` 파일 → `gh` CLI(origin 원격) 순서로 자동 판별합니다.
-- **새 프로젝트 설치**: 
-  `bin/harness-install [--repo R] <target-dir>`
-  (대상 디렉토리에 스캐폴드의 모든 관리/시드 파일을 내려받아 초기화합니다.)
-- **기존 프로젝트 업데이트**: 
-  `bin/harness-update [--dry-run] [--repo R]`
-  (관리 대상 파일(`managed`)은 덮어쓰고, 시드 파일(`seed`)은 누락된 경우에만 복사하며, 프로젝트 개별 파일(`skipped`)은 그대로 보존합니다.)
-
-### 하네스 자체 개발 모드 (make 모드)
-`make_Harness` 스캐폴드 자체를 개선하기 위한 개발 세션을 띄웁니다.
-- **실행**: 
-  `AIMemory/bin/aimux-up make [workers...]` (또는 `aimux-up dev`)
-  (프로젝트 디렉토리를 하네스 루트로 강제하며, 전용 개발 브리프(`.make.md` 템플릿)와 온보딩 메시지로 세션을 설정합니다.)
-
-### 레이아웃(예: 워커 3명)
+### 매일 매매 신호 자동 실행 (cron 등록 예시)
+매일 KST 15:00(미국장 개장 전)에 어드바이저를 실행하여 로그를 기록하도록 설정할 수 있습니다.
+```text
+0 15 * * * cd /path/to/repo && /usr/bin/python3 backtest/live/daily_advisor.py >> backtest/live/advisor.log 2>&1
 ```
-┌──────────┬──────────┐
-│ manager  │ worker1  │
-│          ├──────────┤
-├──────────┤ worker2  │   우측 = 선택한 워커 균등 스택
-│ dispatch ├──────────┤
-│ (~10%)   │ worker3  │
-└──────────┴──────────┘
-```
-매니저 pane은 어떤 CLI를 골라도 항상 `manager`로 명명. 선택된 역할에 맞는
-세션 브리프가 `AIMemory/briefs/` 템플릿에서 생성되어 각 pane이 1차로 읽음
-(커밋된 CLAUDE.md/AGENTS.md 등은 무수정).
-
-### 주요 환경변수(선택)
-- `AWM_ROSTER` — 후보 풀 파일(기본 `AIMemory/agents.roster`).
-- `AWM_MANAGER` / `AWM_WORKERS` — 매니저·워커 사전선택(프롬프트 생략; label/index, 워커는 `all` 가능).
-- `AWM_CONFIG` — 전체 명시 로스터 파일(첫 줄=매니저; 풀·선택 건너뜀).
-- `AWM_AUTO_APPROVE=1` — 권한/trust 프롬프트 없이 기동: claude=`--dangerously-skip-permissions`, codex=`--dangerously-bypass-approvals-and-sandbox`.
-- `AWM_DISPATCH_HEIGHT` — 디스패처 패널 높이 %(기본 10).
-- `AWM_SHELL_ON_DETACH` — `aimux shell` detach 시 동작: `ask`(기본)/`down`(즉시 종료)/`keep`(유지).
-- `AIMUX_VLOG=0` — 디스패처 라이브 피드 끄기.
 
 ---
 
-## 4. 디렉터리
+## 문서 가이드
 
-```
-make_Harness/
-├── CLAUDE.md  PROJECT.md  README.md           세션 진입점 / 프로젝트 정보·README(복사 시 채움)
-├── CHECKLIST.md                               프로젝트 단계 체크리스트(plan이 채움; 복사 시 빈 템플릿)
-├── HARNESS-CHANGELOG.md                        스캐폴드 자체 개발 이력(T 시리즈)
-├── DESIGN.md                                   스캐폴드 아키텍처·레퍼런스
-├── AGENTS.md  AGENTS.md  QWEN.md              역할 중립 CLI 자동로드 브리프(독립/aimux 양립)
-├── templates/                                  산출물 스캐폴딩
-│   ├── project/README.md                       프로젝트 README 템플릿(intake가 렌더)
-│   ├── ideate/                                 ideate 산출 템플릿(초안·루브릭·게이트)
-│   ├── codex/config.toml                       codex CLI 권장 설정 레퍼런스(모델·승인·trust)
-│   └── paper/                                   논문 LaTeX 스캐폴딩(paper 프로파일용)
-├── claude/                                     가이드(core/ideate/intake/단계; profiles 포함)
-├── .claude/skills/ideate/                      /ideate 스킬 본체(슬래시 커맨드)
-└── AIMemory/
-    ├── PROTOCOL.md  tmux-handoff.md  agents.md
-    ├── agents.roster                          매니저·워커 후보 풀(편집 가능)
-    ├── briefs/{manager,worker}.md             역할 브리프 템플릿
-    ├── work.log  handoff_example.md
-    └── bin/{aimux, aimux-up}
-```
-
-런타임 산출물(`AIMemory/.aimux/`, `AIMemory/tmp/`)은 `.gitignore` 대상.
+- [RESEARCH.md](RESEARCH.md): 아이디어 발굴부터 백테스트 결과, 최종 포트폴리오 도출까지의 전체 연구 과정 및 리포트 가이드.
+- [backtest/output/report_final_strategy_ko.md](backtest/output/report_final_strategy_ko.md): 휩쏘 필터를 반영한 최종 추천 전략(안 1~4)의 상세 수치 및 성과 비교.
+- [backtest/output/report_easy_ko.md](backtest/output/report_easy_ko.md): 레버리지 타이밍 전략의 핵심 개념을 직관적으로 설명한 대중용 가이드북.
 
 ---
 
-## 5. 의존성
-tmux 3.0a+, bash, coreutils, flock(util-linux). jq·외부 라이브러리 불필요.
-에이전트 CLI(claude/antigravity/opencode/qwen)는 사용 시 각각 설치·인증 필요.
+## 면책 고지
+
+본 저장소의 모든 분석 및 데이터는 과거 백테스트 결과를 기반으로 한 연구 자료이며, 어떠한 경우에도 **투자 조언이 아닙니다**. 레버리지 ETF는 강한 변동성 손실(Decay) 위험이 동반되므로 장기 횡보 또는 하락 시 원금의 큰 손실을 초래할 수 있습니다. 실제 투자에 따른 판단과 모든 책임은 전적으로 투자자 본인에게 있습니다.
+
+---
+
+이 저장소는 make_Harness 스캐폴드를 사용하여 생성되었습니다. 스캐폴드 및 멀티에이전트 오케스트레이션(aimux) 아키텍처에 대한 상세 설계는 [DESIGN.md](DESIGN.md)를 참조하십시오.
