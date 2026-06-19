@@ -180,6 +180,12 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 
   loadData();
 })();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").catch(function (e) { console.warn("SW 등록 실패", e); });
+  });
+}
 </script>
 </body>
 </html>
