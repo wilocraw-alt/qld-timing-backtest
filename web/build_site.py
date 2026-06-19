@@ -3,7 +3,7 @@
 정적 사이트 빌더 — 추천 전략 ①(SOXL60 buffer±3% + QLD40)의
 데일리 신호·목표배분을 보여주는 모바일 PWA 사이트 생성.
 """
-import os, sys, json, argparse, datetime as dt, shutil
+import os, sys, json, argparse, datetime as dt, shutil, math
 
 import pandas as pd
 import yaml
@@ -146,6 +146,35 @@ def main():
     print(f"[빌더] {sig_t} 종가={sig_close:.2f} / {ma_win}MA={ma:.2f} / ratio={ratio:.4f}")
     print(f"[빌더] 신호 상태: {state} (밴드 {lower:.4f}–{upper:.4f})")
 
+    # ---- 차트 시계열 (series.json) ----
+    data_dir = os.path.join(out_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    sig_series = px[sig_t]  # daily close series, ~2y
+    ma_series = sig_series.rolling(ma_win).mean()
+    cutoff = sig_series.index[-1] - pd.DateOffset(months=18)
+    mask = sig_series.index >= cutoff
+    filtered_dates = sig_series.index[mask]
+    n = len(filtered_dates)
+    max_pts = 220
+    stride = max(1, math.ceil(n / max_pts)) if n > max_pts else 1
+    series_pts = []
+    for i in range(0, n, stride):
+        idx = filtered_dates[i]
+        ma_val = float(ma_series.loc[idx]) if pd.notna(ma_series.loc[idx]) else None
+        series_pts.append({
+            "d": str(idx.date()),
+            "soxx": float(round(sig_series.loc[idx], 2)),
+            "ma": round(ma_val, 2) if ma_val is not None else None,
+        })
+    series_data = {
+        "window": ma_win,
+        "buffer": buffer,
+        "points": series_pts,
+    }
+    with open(os.path.join(data_dir, "series.json"), "w", encoding="utf-8") as f:
+        json.dump(series_data, f, ensure_ascii=False)
+    print(f"  → 생성됨 {os.path.join(data_dir, 'series.json')} ({len(series_pts)} points)")
+
     # ---- 시장 상태 ----
     today = dt.datetime.now().date()
     is_open, reason = market_status(today)
@@ -188,8 +217,6 @@ def main():
     }
 
     # ---- 출력 ----
-    data_dir = os.path.join(out_dir, "data")
-    os.makedirs(data_dir, exist_ok=True)
     with open(os.path.join(data_dir, "latest.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     print(f"  → 생성됨 {os.path.join(data_dir, 'latest.json')}")
@@ -210,6 +237,7 @@ def main():
 
     print(f"\n[완료] 사이트 생성됨 → {out_dir}/")
     print(f"  data/latest.json  ({len(json.dumps(data, ensure_ascii=False))} bytes)")
+    print(f"  data/series.json  ({len(series_pts)} points, stride={stride})")
     print(f"  index.html / manifest.webmanifest / sw.js")
     print(f"  icons/ (icon-192, icon-512, maskable-512)")
 

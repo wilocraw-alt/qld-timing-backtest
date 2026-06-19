@@ -55,6 +55,8 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 .btn-secondary:active { background: #1a1d23; }
 .toast { font-size: 12px; color: #f28b82; text-align: center; padding: 6px 0 0; }
 .check-time { font-size: 11px; color: #5f6368; text-align: center; margin-top: 4px; }
+.chart-wrap { margin-top: 12px; width: 100%; }
+.chart-wrap canvas { display: block; width: 100%; height: 200px; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -71,6 +73,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
   const toast = document.getElementById("toast");
   const checkTime = document.getElementById("checkTime");
   let cachedData = null;
+  let cachedSeries = null;
 
   async function loadData() {
     try {
@@ -94,6 +97,213 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     }
   }
 
+  async function loadSeries() {
+    try {
+      const res = await fetch("./data/series.json?_=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const s = await res.json();
+      cachedSeries = s;
+      const canvas = document.getElementById("chart");
+      if (canvas) drawChart(canvas, s);
+    } catch(_) {}
+  }
+
+  function drawChart(canvas, series) {
+    const pts = series.points;
+    if (!pts || pts.length < 2) return;
+    const buf = series.buffer || 0.03;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const w = rect.width;
+    const h = 200;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+
+    const pad = { top: 14, right: 10, bottom: 28, left: 48 };
+    const pw = w - pad.left - pad.right;
+    const ph = h - pad.top - pad.bottom;
+
+    const hasMA = pts.some(function(p) { return p.ma !== null; });
+
+    var yMin = Infinity, yMax = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var v = pts[i].soxx;
+      if (v < yMin) yMin = v;
+      if (v > yMax) yMax = v;
+      if (hasMA && pts[i].ma !== null) {
+        var mv = pts[i].ma;
+        if (mv < yMin) yMin = mv;
+        if (mv > yMax) yMax = mv;
+      }
+    }
+    if (hasMA) {
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].ma === null) continue;
+        var uv = pts[i].ma * (1 + buf);
+        var lv = pts[i].ma * (1 - buf);
+        if (uv > yMax) yMax = uv;
+        if (lv < yMin) yMin = lv;
+      }
+    }
+    var range = yMax - yMin || 1;
+    var margin = range * 0.05;
+    yMin -= margin;
+    yMax += margin;
+
+    function yPos(v) { return pad.top + ph - (v - yMin) / (yMax - yMin) * ph; }
+    function xPos(i) { return pad.left + i / (pts.length - 1) * pw; }
+
+    ctx.clearRect(0, 0, w, h);
+
+    // band fill
+    if (hasMA) {
+      ctx.beginPath();
+      var started = false;
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].ma === null) continue;
+        var x = xPos(i);
+        if (!started) { ctx.moveTo(x, yPos(pts[i].ma * (1 + buf))); started = true; }
+        else ctx.lineTo(x, yPos(pts[i].ma * (1 + buf)));
+      }
+      for (var i = pts.length - 1; i >= 0; i--) {
+        if (pts[i].ma === null) continue;
+        ctx.lineTo(xPos(i), yPos(pts[i].ma * (1 - buf)));
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(249,171,0,0.10)";
+      ctx.fill();
+
+      // band edge lines (dashed)
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      started = false;
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].ma === null) continue;
+        var x = xPos(i), y = yPos(pts[i].ma * (1 + buf));
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = "rgba(249,171,0,0.35)";
+      ctx.stroke();
+      ctx.beginPath();
+      started = false;
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].ma === null) continue;
+        var x = xPos(i), y = yPos(pts[i].ma * (1 - buf));
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = "rgba(249,171,0,0.35)";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // MA line
+    if (hasMA) {
+      ctx.beginPath();
+      started = false;
+      for (var i = 0; i < pts.length; i++) {
+        if (pts[i].ma === null) continue;
+        var x = xPos(i), y = yPos(pts[i].ma);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#f9ab00";
+      ctx.stroke();
+    }
+
+    // SOXX price line
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      var x = xPos(i), y = yPos(pts[i].soxx);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8ab4f8";
+    ctx.stroke();
+
+    // highlight last point
+    var last = pts[pts.length - 1];
+    var lx = xPos(pts.length - 1), ly = yPos(last.soxx);
+    ctx.beginPath();
+    ctx.arc(lx, ly, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#8ab4f8";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(lx, ly, 2, 0, Math.PI * 2);
+    ctx.fillStyle = "#111318";
+    ctx.fill();
+
+    // last MA point
+    if (hasMA && last.ma !== null) {
+      var lmy = yPos(last.ma);
+      ctx.beginPath();
+      ctx.arc(lx, lmy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = "#f9ab00";
+      ctx.fill();
+    }
+
+    // Y axis ticks
+    var yTicks = 4;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.font = "10px sans-serif";
+    ctx.fillStyle = "#5f6368";
+    for (var i = 0; i <= yTicks; i++) {
+      var v = yMin + (yMax - yMin) * i / yTicks;
+      var y = yPos(v);
+      ctx.fillText("$" + v.toFixed(0), pad.left - 6, y);
+      ctx.beginPath();
+      ctx.moveTo(pad.left - 4, y);
+      ctx.lineTo(pad.left, y);
+      ctx.strokeStyle = "#2c2f36";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // X axis date labels
+    var xLabels = 4;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (var i = 0; i < xLabels; i++) {
+      var idx = Math.floor(i * (pts.length - 1) / (xLabels - 1));
+      ctx.fillText(pts[idx].d.slice(2), pad.left + idx / (pts.length - 1) * pw, pad.top + ph + 6);
+    }
+
+    // legend
+    ctx.textBaseline = "top";
+    ctx.font = "10px sans-serif";
+    var legX = pad.left + 6, legY = pad.top + 4;
+    var items = [
+      { label: "SOXX", color: "#8ab4f8" },
+      { label: "120MA", color: "#f9ab00" },
+      { label: "\u00B1" + (buf * 100).toFixed(0) + "%", color: "rgba(249,171,0,0.35)" },
+    ];
+    for (var i = 0; i < items.length; i++) {
+      ctx.fillStyle = items[i].color;
+      ctx.fillRect(legX, legY + 1, 10, 2);
+      ctx.fillStyle = "#9aa0a6";
+      ctx.fillText(items[i].label, legX + 14, legY - 1);
+      legX += ctx.measureText(items[i].label).width + 28;
+    }
+
+    // ratio label at last point
+    if (hasMA && last.ma !== null) {
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillStyle = "#e8eaed";
+      ctx.fillText((last.soxx / last.ma).toFixed(3) + "x", lx + 7, ly - 2);
+    }
+  }
+
   function render(d) {
     const signal = d.signal, market = d.market, prices = d.prices;
     const target = d.target, conclusion = d.conclusion;
@@ -114,7 +324,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '  <div class="badge ' + badgeCls[s] + '">' + stateLabel[s] + '</div>'
       + '  <div class="signal-row">'
       + '    <span class="signal-meta">SOXX/120MA = ' + signal.ratio.toFixed(3) + '</span>'
-      + '    <span class="signal-meta">밴드 ±' + ((signal.upper - 1) * 100).toFixed(0) + '%</span>'
+      + '    <span class="signal-meta">밴드 \u00B1' + ((signal.upper - 1) * 100).toFixed(0) + '%</span>'
       + '  </div>'
       + '  <div class="ratio-bar">'
       + '    <span class="ratio-label">0.95</span>'
@@ -125,11 +335,12 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '    </div>'
       + '    <span class="ratio-label">1.05</span>'
       + '  </div>'
+      + '  <div class="chart-wrap"><canvas id="chart" height="200"></canvas></div>'
       + '  <div class="btn-row">'
-      + '    <button class="btn-primary" onclick="window.__refresh()">🔄 새로고침</button>'
-      + '    <a class="btn-secondary" href="https://github.com/wilocraw-alt/qld-timing-backtest/actions/workflows/daily.yml" target="_blank" rel="noopener">⟳ 재계산</a>'
+      + '    <button class="btn-primary" onclick="window.__refresh()">\uD83D\uDD04 새로고침</button>'
+      + '    <a class="btn-secondary" href="https://github.com/wilocraw-alt/qld-timing-backtest/actions/workflows/daily.yml" target="_blank" rel="noopener">\u27F3 재계산</a>'
       + '  </div>'
-      + '  <div style="font-size:11px;color:#5f6368;text-align:center;margin-top:6px">최신 시세로 재계산하려면 ⟳ 재계산 → GitHub에서 "Run workflow"</div>'
+      + '  <div style="font-size:11px;color:#5f6368;text-align:center;margin-top:6px">최신 시세로 재계산하려면 \u27F3 재계산 \u2192 GitHub에서 "Run workflow"</div>'
       + '</div>'
 
       + '<div class="card">'
@@ -147,7 +358,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '    <div class="target-card">'
       + '      <div class="target-pct">' + target.core_pct + '%</div>'
       + '      <div class="target-ticker">' + target.core_ticker + '</div>'
-      + (s === "OFF" ? '<div class="target-note">→ 현금</div>' : "")
+      + (s === "OFF" ? '<div class="target-note">\u2192 현금</div>' : "")
       + '    </div>'
       + '    <div class="target-card">'
       + '      <div class="target-pct">' + target.satellite_pct + '%</div>'
@@ -159,7 +370,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '<div class="card">'
       + '  <div class="card-label">핵심 결론</div>'
       + '  <div class="conclusion">' + conclusion + '</div>'
-      + '  <div style="margin-top:8px;font-size:12px"><a href="https://github.com/wilocraw-alt/qld-timing-backtest/blob/main/RESEARCH.md" target="_blank">📄 전체 연구 보기 →</a></div>'
+      + '  <div style="margin-top:8px;font-size:12px"><a href="https://github.com/wilocraw-alt/qld-timing-backtest/blob/main/RESEARCH.md" target="_blank">\uD83D\uDCC4 전체 연구 보기 \u2192</a></div>'
       + '</div>'
 
       + '<div class="meta-line">'
@@ -172,13 +383,18 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '  ' + d.disclaimer + '<br><br>'
       + '  <a href="https://github.com/wilocraw-alt/qld-timing-backtest" target="_blank">GitHub</a>'
       + '</div>';
+
+    if (cachedSeries) {
+      var canvas = document.getElementById("chart");
+      if (canvas) drawChart(canvas, cachedSeries);
+    }
   }
 
   window.__refresh = function() {
-    loadData();
+    loadData().then(function() { loadSeries(); });
   };
 
-  loadData();
+  loadData().then(function() { loadSeries(); });
 })();
 
 if ("serviceWorker" in navigator) {
