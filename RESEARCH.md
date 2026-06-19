@@ -81,6 +81,11 @@ P1 레짐바스켓 / P2 횡단모멘텀 / P3 정적분산 + 정적 레버리지 
 최종 전략을 매일 실행해 "오늘 살 주식·수량"을 알려주는 실행 도구.
 - `backtest/live/daily_advisor.py` + `advisor_config.yaml`: 전일 종가로 SOXX 120일선 ±3% 신호 판정 → 소수점 목표비중 리밸런싱 주문 출력. 상태 `state.json` 영속(주문 실행 가정), 실행 타임스탬프, **NYSE 휴장 캘린더(규칙기반)** 반영(휴장일 매매 보류).
 - cron: `0 15 * * *`(매일 15:00 KST, 미국장 개장 전).
+- **라이브 웹사이트(PWA)**: [https://wilocraw-alt.github.io/qld-timing-backtest/](https://wilocraw-alt.github.io/qld-timing-backtest/)
+  - GitHub Actions가 **매일 08:30 KST**(`daily.yml` cron `30 23 * * *`) `web/build_site.py`를 실행해 신호·차트를 산출하고 GitHub Pages로 자동 배포.
+  - SOXX 120일선 ±3% 밴드 **3개월 시계열 차트**(매수=초록/매도=빨강 마커), 목표배분, 최신가 표시.
+  - **기기별 거래로그**: 매수·매도·평단 입력 → `localStorage`(기기 로컬, 서버·repo 미전송)에 기록, 현재 수익률 계산.
+  - 휴대폰 홈화면 추가 → standalone PWA 앱, 오프라인 캐시, 새로고침 버튼.
 
 ---
 
@@ -110,6 +115,11 @@ P1 레짐바스켓 / P2 횡단모멘텀 / P3 정적분산 + 정적 레버리지 
 - `backtest/live/daily_advisor.py` — 데일리 매매 어드바이저(cron 15:00).
 - `backtest/live/advisor_config.yaml` — 예산·비중·MA·buffer·티커(하드코딩 금지).
 - (런타임 `state.json`/`advisor.log`/`today_action.txt`는 .gitignore — 개인 상태)
+- **PWA 웹사이트** ([라이브](https://wilocraw-alt.github.io/qld-timing-backtest/)):
+  - `web/build_site.py` — 정적 사이트 빌더(신호·차트 산출, template→index.html/SW/webmanifest).
+  - `web/template_*.html/js/sw.js` — PWA 셸(화면, 거래로그, service worker 캐시).
+  - `web/validate_site.py` — 배포 전 정적 검증(파일·manifest·아이콘·SW precache·절대경로·링크).
+  - `.github/workflows/daily.yml` — cron `30 23 * * *` → build → deploy(GitHub Pages).
 
 ### 엔진·전략
 - `backtest/contrib.py` — 정기납입 백테스트 엔진(run_contrib, 매도→매수 2패스) + 전략1·2·3.

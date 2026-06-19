@@ -26,6 +26,24 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 
 ---
 
+## 후속: 데일리 어드바이저 웹사이트 (PWA + GitHub Actions 일일 갱신)
+
+- [x] **W-A. README 프로젝트화** (antigravity): make_Harness 스캐폴드 설명 → qld-timing-backtest README 재작성. 매니저 수락.
+- [x] **W-B. 사이트 빌더 + PWA 프론트** (opencode): web/build_site.py + index/manifest/sw 템플릿 + 아이콘. FIX-B 갱신버튼(새로고침 재fetch + Actions 트리거 링크). 매니저 재빌드 수락.
+- [x] **W-C. GitHub Actions 워크플로** (antigravity/opencode): .github/workflows/daily.yml, FIX-C cron 08:30 KST(30 23 * * *)+workflow_dispatch, Pages 배포 잡.
+- [x] **W-D. 통합·푸시·Pages 활성·배포검증** (opencode): commit+push(workflow scope 인증)+Pages(Actions소스)+workflow run success. 라이브 URL 실측 200 + 최신 데이터.
+- [x] **W-E. 배포전 정적검증 하니스** (antigravity): web/validate_site.py(stdlib) — PWA 설치적합성+문서링크. 진짜결함 1건(SW 등록 누락) 적발.
+- [x] **W-G. SW 등록 FIX + 재배포** (opencode): serviceWorker.register('./sw.js') 추가 → 재배포 → 라이브 반영 확인. 검증기도 6번 오탐 정교화(8/8 PASS).
+- [x] **W-H. 신호 시계열 차트** (opencode): build_site가 series.json(188pts,~18mo) 산출 + 바닐라 canvas 차트(SOXX선+120MA선+±3% 밴드 음영+현재점 ratio라벨). 사용자 피드백 반영. 라이브 검증.
+
+- [x] **W-I. 차트 3개월 + 매수/매도 마커 + 기기별 거래로그·수익률** (opencode): series 3개월(65pts), localStorage(wath_journal_v1) 거래로그+수익률+평가손익, SOXX선 ▲매수/▼매도 색상 마커(±3% 밴드 타이밍 확인). 사용자 피드백 반영. 라이브 검증.
+
+- [x] **W-J. SW 캐시 정체 FIX** (opencode): CACHE 빌드별 버전화(__BUILD_ID__←updated_at) + /data·네비게이션 network-first + clients.claim. PC가 옛 셸(거래로그 미포함)을 캐시하던 문제 해소. 라이브 검증.
+
+배포 URL: https://wilocraw-alt.github.io/qld-timing-backtest/ (public, 사용자 승인)
+참고: repo public 전환(무료 Pages 제약, 사용자 승인). 푸시 시 workflow scope 필요. 민감 런타임(state.json/advisor.log/.env)은 .gitignore 미추적. SW 캐시는 빌드별 버전화되어 배포 시 자동 갱신(예전엔 wath-signal-v1 고정이라 정체).
+
 ## 진행 이력
 
 - 2026-06-19 — 0단계 완료: 요구사항 확정(트랜치 균등10%/일상한$1k/전체기간/$10k, 비교군 2종), 설계 PROPOSE 병렬→수렴(plan-final)
+- 2026-06-20 — 웹사이트 후속: README 프로젝트화 + 데일리 신호 PWA(web/) + GH Actions 일일배포(.github/workflows/daily.yml, 08:30 KST) + 정적검증 하니스. 라이브 https://wilocraw-alt.github.io/qld-timing-backtest/ . SW 등록 FIX 재배포 진행 중.

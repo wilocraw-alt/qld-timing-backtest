@@ -2,16 +2,15 @@
   "schema": "aimux-run-summary/1",
   "session": "aimux-manager-antigravity-opencode-260619-082431",
   "project_dir": "/home/wilowisp/Work/Personal/timing_wATH",
-  "totals": {"requests": 50, "responses": 29, "notices": 18, "highfives": 0, "redispatches": 8},
-  "release_reasons": {"response-seen": 27, "resolved": 11, "idle-stable": 27, "unacked": 3, "timeout": 2, "pane-gone": 0, "superseded": 27},
-  "durations_seconds": {"session_span": 84487, "turnaround_min": 2, "turnaround_avg": 130, "turnaround_max": 902},
+  "totals": {"requests": 49, "responses": 28, "notices": 18, "highfives": 0, "redispatches": 8},
+  "release_reasons": {"response-seen": 26, "resolved": 11, "idle-stable": 27, "unacked": 3, "timeout": 2, "pane-gone": 0, "superseded": 26},
+  "durations_seconds": {"session_span": 83823, "turnaround_min": 2, "turnaround_avg": 130, "turnaround_max": 902},
   "per_agent": {
-    "opencode": {"requests": 26, "completed": 16, "failed": 10},
+    "opencode": {"requests": 25, "completed": 15, "failed": 10},
     "manager": {"requests": 8, "completed": 5, "failed": 3},
     "antigravity": {"requests": 16, "completed": 12, "failed": 4}
   },
   "handoffs": [
-    {"type":"request","to":"opencode","handoff":"AIMemory/handoff_web-swcache.claude-opus-4-8.md","delivered":1781910198,"released":1781910323,"release_reason":"response-seen"},
     {"type":"notice","to":"%0","handoff":"-","delivered":1781826540,"released":1781826542,"release_reason":"resolved"},
     {"type":"notice","to":"%0","handoff":"-","delivered":1781826459,"released":1781826537,"release_reason":"idle-stable"},
     {"type":"notice","to":"%0","handoff":"-","delivered":1781833191,"released":1781833225,"release_reason":"idle-stable"},
@@ -107,7 +106,6 @@
     {"type":"request","to":"opencode","handoff":"AIMemory/handoff_web-chart.claude-opus-4-8.md","delivered":1781908712,"released":1781908956,"release_reason":"response-seen"},
     {"type":"response","to":"manager","handoff":"AIMemory/handoff_web-chart-done.opencode.md","delivered":0,"released":0,"release_reason":"superseded"},
     {"type":"request","to":"opencode","handoff":"AIMemory/handoff_web-journal.claude-opus-4-8.md","delivered":1781909444,"released":1781909659,"release_reason":"response-seen"},
-    {"type":"response","to":"manager","handoff":"AIMemory/handoff_web-journal-done.opencode.md","delivered":0,"released":0,"release_reason":"superseded"},
-    {"type":"response","to":"manager","handoff":"AIMemory/handoff_web-swcache-done.opencode.md","delivered":0,"released":0,"release_reason":"superseded"}
+    {"type":"response","to":"manager","handoff":"AIMemory/handoff_web-journal-done.opencode.md","delivered":0,"released":0,"release_reason":"superseded"}
   ]
 }
