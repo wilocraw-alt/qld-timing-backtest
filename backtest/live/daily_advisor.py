@@ -20,8 +20,43 @@ import os, sys, json, argparse, datetime as dt
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
 os.chdir(BASE)
 
+import pandas as pd
 import yaml
 import yfinance as yf
+from pandas.tseries.holiday import (AbstractHolidayCalendar, Holiday, nearest_workday,
+                                    USMartinLutherKingJr, USPresidentsDay, USMemorialDay,
+                                    USLaborDay, USThanksgivingDay, GoodFriday)
+
+
+class _NYSEHolidays(AbstractHolidayCalendar):
+    """NYSE 휴장일 규칙(날짜 하드코딩 없이 규칙 기반). 콜럼버스/재향군인의날 제외, 굿프라이데이 포함."""
+    rules = [
+        Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
+        USMartinLutherKingJr,
+        USPresidentsDay,
+        GoodFriday,
+        USMemorialDay,
+        Holiday("Juneteenth", month=6, day=19, observance=nearest_workday, start_date="2022-06-19"),
+        Holiday("Independence Day", month=7, day=4, observance=nearest_workday),
+        USLaborDay,
+        USThanksgivingDay,
+        Holiday("Christmas", month=12, day=25, observance=nearest_workday),
+    ]
+
+
+_NYSE_CAL = _NYSEHolidays()
+
+
+def market_status(d):
+    """미국장(NYSE) 개장 여부 판정 → (is_open: bool, reason: str|None). 조기폐장·특별휴장 제외."""
+    if d.weekday() >= 5:
+        return False, "주말"
+    hol = _NYSE_CAL.holidays(start=pd.Timestamp(d.year, 1, 1),
+                             end=pd.Timestamp(d.year, 12, 31), return_name=True)
+    ts = pd.Timestamp(d)
+    if ts in hol.index:
+        return False, str(hol[ts])
+    return True, None
 
 
 def load_cfg(path):
@@ -80,48 +115,52 @@ def main():
     today = now.date()
     actions = []
 
-    # ---- 1) 월 적립 (현금 유입) ----
-    ym = f"{today.year}-{today.month:02d}"
-    is_weekday = today.weekday() < 5
-    new_month = st["last_contrib_month"] != ym and is_weekday
-    if new_month:
-        st["cash"] += budget
-        st["last_contrib_month"] = ym
-        actions.append(f"💰 월 적립 {fmt(budget)} 유입")
+    is_open, reason = market_status(today)
+    if not is_open:
+        # 미국장 휴장일: 매매·적립·리밸런싱 모두 보류(상태 변경 없음)
+        actions.append(f"🛌 오늘 미국장 휴장 ({reason}) — 매매 없음 (다음 개장일에 처리)")
+    else:
+        # ---- 1) 월 적립 (현금 유입) — 그 달 첫 '개장일'에 ----
+        ym = f"{today.year}-{today.month:02d}"
+        new_month = st["last_contrib_month"] != ym
+        if new_month:
+            st["cash"] += budget
+            st["last_contrib_month"] = ym
+            actions.append(f"💰 월 적립 {fmt(budget)} 유입")
 
-    # ---- 2) 코어(SOXL) 신호 buffer 히스테리시스 ----
-    prev_on = st["core_on"]
-    if ratio == ratio:
-        if prev_on and ratio < 1 - buf:
-            st["core_on"] = False
-        elif (not prev_on) and ratio > 1 + buf:
-            st["core_on"] = True
-    flipped = st["core_on"] != prev_on
-    if flipped:
-        actions.append(f"🔁 신호 전환 {'OFF→ON' if st['core_on'] else 'ON→OFF'} (SOXX/120MA={ratio:.3f})")
+        # ---- 2) 코어(SOXL) 신호 buffer 히스테리시스 ----
+        prev_on = st["core_on"]
+        if ratio == ratio:
+            if prev_on and ratio < 1 - buf:
+                st["core_on"] = False
+            elif (not prev_on) and ratio > 1 + buf:
+                st["core_on"] = True
+        flipped = st["core_on"] != prev_on
+        if flipped:
+            actions.append(f"🔁 신호 전환 {'OFF→ON' if st['core_on'] else 'ON→OFF'} (SOXX/120MA={ratio:.3f})")
 
-    # ---- 3) 소수점 목표비중 리밸런싱 (매월 적립일 또는 신호전환시) ----
-    do_rebal = new_month or flipped
-    if do_rebal:
-        total_eq = st["cash"] + st["core_shares"] * core_px + st["sat_shares"] * sat_px
-        w_core_eff = wc if st["core_on"] else 0.0     # SOXL OFF면 코어 0% → 현금
-        tgt_core_v = w_core_eff * total_eq
-        tgt_sat_v = (1 - wc) * total_eq
-        for nm, px_now, cur_sh, tgt_v in [
-                (core, core_px, st["core_shares"], tgt_core_v),
-                (sat, sat_px, st["sat_shares"], tgt_sat_v)]:
-            d_sh = tgt_v / px_now - cur_sh
-            amt = abs(d_sh) * px_now
-            if amt < 1.0:                              # $1 미만 변화는 무시
-                continue
-            mark, verb = ("🟢", "매수") if d_sh > 0 else ("🔴", "매도")
-            actions.append(f"{mark} {verb} {nm}  {abs(d_sh):.4f}주  (~{fmt(amt)}, 종가 {fmt(px_now)}) → 목표 {fmt(tgt_v)}")
-        st["core_shares"] = tgt_core_v / core_px
-        st["sat_shares"] = tgt_sat_v / sat_px
-        st["cash"] = round(total_eq - tgt_core_v - tgt_sat_v, 2)
+        # ---- 3) 소수점 목표비중 리밸런싱 (매월 적립일 또는 신호전환시) ----
+        do_rebal = new_month or flipped
+        if do_rebal:
+            total_eq = st["cash"] + st["core_shares"] * core_px + st["sat_shares"] * sat_px
+            w_core_eff = wc if st["core_on"] else 0.0     # SOXL OFF면 코어 0% → 현금
+            tgt_core_v = w_core_eff * total_eq
+            tgt_sat_v = (1 - wc) * total_eq
+            for nm, px_now, cur_sh, tgt_v in [
+                    (core, core_px, st["core_shares"], tgt_core_v),
+                    (sat, sat_px, st["sat_shares"], tgt_sat_v)]:
+                d_sh = tgt_v / px_now - cur_sh
+                amt = abs(d_sh) * px_now
+                if amt < 1.0:                              # $1 미만 변화는 무시
+                    continue
+                mark, verb = ("🟢", "매수") if d_sh > 0 else ("🔴", "매도")
+                actions.append(f"{mark} {verb} {nm}  {abs(d_sh):.4f}주  (~{fmt(amt)}, 종가 {fmt(px_now)}) → 목표 {fmt(tgt_v)}")
+            st["core_shares"] = tgt_core_v / core_px
+            st["sat_shares"] = tgt_sat_v / sat_px
+            st["cash"] = round(total_eq - tgt_core_v - tgt_sat_v, 2)
 
-    if not actions:
-        actions.append("✅ 오늘 매매 없음 — 보유 유지 (리밸런싱은 매월 적립일·신호전환시에만)")
+        if not actions:
+            actions.append("✅ 오늘 매매 없음 — 보유 유지 (리밸런싱은 매월 적립일·신호전환시에만)")
 
     # ---- 평가 ----
     core_val = st["core_shares"] * core_px
@@ -136,6 +175,7 @@ def main():
     lines.append("=" * 56)
     lines.append(f" 데일리 어드바이저  실행 {now:%Y-%m-%d %H:%M:%S} (KST)")
     lines.append(f" 기준 데이터: 전일 종가 {last_date.date()}")
+    lines.append(f" 오늘 미국장: {'개장' if is_open else '휴장 — ' + str(reason)}")
     lines.append("=" * 56)
     lines.append(f"[신호] {sig_t} 종가 {fmt(sig_close)} / {win}일선 {fmt(ma)} = ratio {ratio:.3f}")
     on_txt = "ON(보유)" if st["core_on"] else "OFF(현금)"
