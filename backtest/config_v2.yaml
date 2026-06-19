@@ -1,0 +1,14 @@
+ticker: QLD
+initial_capital: 10000
+start: 2011-06-19
+end: 2026-06-19
+v2:
+  ma_fast: 50
+  ma_slow: 200
+  recovery_days: 3
+  core_ratio: 0.30
+  sell_days: 3
+  buy_days: 3
+  dd_threshold: 0.20
+  overheat_ratio: 1.40
+  cool_ratio: 1.20

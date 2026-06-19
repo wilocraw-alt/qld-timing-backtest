@@ -531,3 +531,225 @@ Checkpoint signalled (label=all-experiments-and-git-done) — dispatcher will sn
 
 ### 2026-06-19 09:51 | aimux | NOTE
 run-summary snapshot: v002-20260619-0951-all-experiments-and-git-done.json (label=all-experiments-and-git-done); latest -> run-summary.json.
+
+### 2026-06-19 10:40 | claude-opus-4-8 | PROMPT
+> 15년 범위. 전략을 아이디어 발굴부터 다시 만들어줘. 추세붕괴시 현금화→반등매수, (필요시)과열시 현금화로
+> 급락충격 회피, 붕괴후 급등 초기 며칠 포착, 정밀타이밍 지양·분할매수, 초기 묻어두기(일괄)보다 나은 결과.
+
+### 2026-06-19 10:40 | claude-opus-4-8 | NOTE
+NEW STRATEGY redesign (v2). Window=15yr (2011-06~2026-06). Goal=BEAT 15yr lumpsum buy&hold on QLD.
+Paradigm shift: trend-following regime (cash out on trend breakdown, scaled re-entry capturing early
+rebound), optional overheating de-risk, robust few-param scaled rules (avoid timing over-tuning).
+Rationale: on 2x leveraged ETF, avoiding deep drawdowns (volatility decay) CAN beat buy&hold.
+Running manager diverge-converge ideation: PROPOSE to opencode + antigravity + own draft.
+
+### 2026-06-19 10:33 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-103302-9718-30879 handoff=AIMemory/handoff_propose-v2.claude-opus-4-8.md roles=PROPOSE
+
+### 2026-06-19 10:33 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-103302-9735-6026 handoff=AIMemory/handoff_propose-v2.claude-opus-4-8.md roles=PROPOSE
+
+### 2026-06-19 10:43 | claude-opus-4-8 | HANDOFF
+→ opencode & antigravity (parallel): PROPOSE v2 strategy design (trend-following + scaled re-entry,
+beat 15yr lumpsum). Propose only. See handoff_propose-v2.
+
+### 2026-06-19 10:33 | aimux | NOTE
+Dispatched request id=20260619-103302-9735-6026 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 10:33 | aimux | NOTE
+Dispatched request id=20260619-103302-9718-30879 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 10:33 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-103302-9735-6026) — held, NOT auto-answered; escalated to the human, do not reassign.
+[2026-06-19T10:45] HANDOFF_RECEIVED id=20260619-103302-9718-30879 from=%0 (manager) action=PROPOSE file=AIMemory/handoff_propose-v2.claude-opus-4-8.md
+[2026-06-19T10:45] HANDOFF_CLOSED id=20260619-103302-9718-30879 response=AIMemory/v2-proposal.opencode.md
+
+### 2026-06-19 10:33 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-103355-11561-20644 handoff=AIMemory/v2-proposal.opencode.md roles=ANSWER
+
+### 2026-06-19 10:34 | aimux | NOTE
+Delivery to pane %0: Enter submit not visually confirmed within the settle window after 3 tries (often a slow-rendering TUI that DID submit) — engagement check / re-nudge will confirm or recover.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Dispatched request id=20260619-103355-11561-20644 -> tmux-pane:manager (%0).
+
+### 2026-06-19 10:34 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-103302-9718-30879, handoff AIMemory/handoff_propose-v2.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Delivery to pane %0: Enter submit not visually confirmed within the settle window after 3 tries (often a slow-rendering TUI that DID submit) — engagement check / re-nudge will confirm or recover.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Re-nudged tmux-pane:manager — request id=20260619-103355-11561-20644 not picked up (no agent activity after delivery).
+
+### 2026-06-19 10:34 | aimux | NOTE
+Auto-notice -> %2: worker 'manager' freed on 'unacked' with NO response (orig req 20260619-103355-11561-20644, handoff AIMemory/v2-proposal.opencode.md). Manager should verify, not assume completion.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Delivery to pane %0: Enter submit not visually confirmed within the settle window after 3 tries (often a slow-rendering TUI that DID submit) — engagement check / re-nudge will confirm or recover.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Dispatched notice id=20260619-103407-1955-21628 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 10:34 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_propose-v2.claude-opus-4-8.md. Acting on action items (PROPOSE only).
+
+### 2026-06-19 10:34 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/v2-proposal.antigravity.md
+
+### 2026-06-19 10:34 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_propose-v2.claude-opus-4-8.md.
+Completed: v2 design proposal written (Core+Satellite Asymmetric Trend, 7 params, 6-case ablation matrix). See AIMemory/v2-proposal.antigravity.md.
+
+### 2026-06-19 10:34 | aimux | NOTE
+Dispatched notice id=20260619-103427-1955-7520 -> tmux-pane:%2 (%2).
+
+### 2026-06-19 10:34 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-103440-13627-29855 handoff=AIMemory/v2-proposal.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 10:34 | aimux | NOTE
+Manager RESOLVED req 20260619-103355-11561-20644 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+[2026-06-19T10:47] DISPATCHER_NOTICE: manager unacked v2-proposal. opencode verified file exists. Resolved 20260619-103355-11561-20644.
+
+### 2026-06-19 10:36 | aimux | NOTE
+Manager RESOLVED req 20260619-103302-9718-30879 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:36 | aimux | NOTE
+Manager RESOLVED req 20260619-103302-9735-6026 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:38 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-103800-19287-24476 handoff=AIMemory/handoff_v2-ind.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 10:38 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-103800-19305-9097 handoff=AIMemory/handoff_v2-engine.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 10:52 | claude-opus-4-8 | NOTE
+v2 PROPOSE converged → plan-v2-final (core+satellite trend-follow; regime=200MA+50/200 cross,
+optional dd-from-high fast exit; asymmetric slow-exit/fast-reentry; time-based scaled in/out;
+optional overheat de-risk). Decomposed Wave 1.
+
+### 2026-06-19 10:52 | claude-opus-4-8 | HANDOFF
+→ antigravity: IMPLEMENT indicators_v2.py (clean env-free handoff). → opencode: IMPLEMENT
+strategy_v2.py (core+satellite state machine). Parallel, disjoint new files. See plan-v2-final.
+
+### 2026-06-19 10:38 | aimux | NOTE
+Dispatched request id=20260619-103800-19305-9097 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 10:38 | aimux | NOTE
+Delivery to pane %1: Enter submit not visually confirmed within the settle window after 3 tries (often a slow-rendering TUI that DID submit) — engagement check / re-nudge will confirm or recover.
+
+### 2026-06-19 10:38 | aimux | NOTE
+Dispatched request id=20260619-103800-19287-24476 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 10:38 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-103800-19287-24476) — held, NOT auto-answered; escalated to the human, do not reassign.
+
+### 2026-06-19 10:39 | aimux | NOTE
+Manager RESOLVED req 20260619-103355-11561-20644 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:39 | aimux | NOTE
+Manager RESOLVED req 20260619-103302-9718-30879 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:39 | aimux | NOTE
+Auto-notice -> %0: worker 'antigravity' is blocked on a LOW-RISK user prompt (req 20260619-103800-19287-24476) — asked manager to act as the human and answer it in pane %1; worker held, not reassigned.
+
+### 2026-06-19 10:39 | aimux | NOTE
+Dispatched notice id=20260619-103936-1955-17154 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 11:05 | claude-opus-4-8 | NOTE
+Answered antigravity LOW-RISK '1' to run python3 AIMemory/tmp/sanity_v2_ind.py (its indicators_v2 self-test).
+[2026-06-19T11:00] HANDOFF_RECEIVED id=20260619-103800-19305-9097 from=%0 (manager) action=IMPLEMENT file=AIMemory/handoff_v2-engine.claude-opus-4-8.md
+[2026-06-19T11:00] HANDOFF_CLOSED id=20260619-103800-19305-9097 response=AIMemory/handoff_v2-engine-done.opencode.md
+
+### 2026-06-19 10:40 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-104017-24203-26874 handoff=AIMemory/handoff_v2-engine-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 10:40 | aimux | NOTE
+Dispatched request id=20260619-104017-24203-26874 -> tmux-pane:manager (%0).
+
+### 2026-06-19 10:40 | aimux | NOTE
+Manager RESOLVED req 20260619-104017-24203-26874 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:40 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-103800-19305-9097, handoff AIMemory/handoff_v2-engine.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 10:40 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_v2-ind.claude-opus-4-8.md. Acting on action items.
+
+### 2026-06-19 10:40 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/engine/indicators_v2.py
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/tmp/sanity_v2_ind.py
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/handoff_v2-ind-done.antigravity.md
+
+### 2026-06-19 10:40 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_v2-ind.claude-opus-4-8.md.
+Completed: indicators_v2.py written, all B2 columns present, 4/4 sanity checks pass (no look-ahead bias). See AIMemory/handoff_v2-ind-done.antigravity.md.
+
+### 2026-06-19 10:40 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-104046-25492-31274 handoff=AIMemory/handoff_v2-ind-done.antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 10:41 | aimux | NOTE
+Manager RESOLVED req 20260619-103800-19287-24476 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 1 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:42 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-104237-28366-15158 handoff=AIMemory/handoff_v2-wave2.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 11:11 | claude-opus-4-8 | HANDOFF_CLOSED + HANDOFF
+← v2 Wave1 ACCEPTED: indicators_v2 (antigravity, 11 cols, no look-ahead) + strategy_v2 (opencode,
+core invariant/scaled/ablation PASS). Manager integration smoke (15yr): v2-full $305k/CAGR25.6%/MDD52%
+/Sharpe0.86 vs lumpsum $806k/34%/64%/0.91 → v2 still LOSES (V-shaped recoveries punish trend-following;
+no prolonged bear 2011-2026 except 2022). Look-ahead-free confirmed.
+→ opencode: v2 Wave2 (ablation_v2 + main_v2 + config_v2 + 15yr full run + report_v2_ko, honest lumpsum O/X).
+
+### 2026-06-19 10:42 | aimux | NOTE
+Dispatched request id=20260619-104237-28366-15158 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 10:43 | aimux | NOTE
+Dispatched notice id=20260619-104038-1955-28561 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 10:43 | aimux | NOTE
+Manager RESOLVED req 20260619-103800-19305-9097 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 10:44 | aimux | NOTE
+Auto-notice -> %0: worker 'opencode' freed on 'idle-stable' with NO response (orig req 20260619-104237-28366-15158, handoff AIMemory/handoff_v2-wave2.claude-opus-4-8.md). Manager should verify, not assume completion.
+
+### 2026-06-19 10:44 | aimux | NOTE
+Dispatched notice id=20260619-104436-1955-18546 -> tmux-pane:%0 (%0).
+
+### 2026-06-19 10:45 | aimux | NOTE
+Manager RESOLVED req 20260619-104237-28366-15158 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+### 2026-06-19 11:20 | claude-opus-4-8 | NOTE
+v2 Wave2 PARTIAL: opencode produced results_v2.csv(11 rows)+equity_v2.png+ablation_v2/main_v2/config_v2
+(data VERIFIED — v2-full $305,096 matches manager smoke exactly), but idled WITHOUT report_v2_ko.txt
+or drawdown_v2.png. Findings: NO v2 variant beats 15yr lumpsum ($805,506); closest core-50 $447,978
+& no-dd-exit $432,826 (staying invested helps); no-core $90,746 & lump-cashout $71,085 (de-risking hurts).
+dd-exit actively hurt (sold V-shaped dips). Re-dispatching report completion.
+
+### 2026-06-19 10:46 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-104614-1278-26843 handoff=AIMemory/handoff_v2-report.claude-opus-4-8.md roles=IMPLEMENT
+
+### 2026-06-19 11:22 | claude-opus-4-8 | HANDOFF
+→ opencode: finish v2 report (report_v2_ko.txt + drawdown_v2.png) from verified results_v2.csv.
+
+### 2026-06-19 10:46 | aimux | NOTE
+Dispatched request id=20260619-104614-1278-26843 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 11:22 | opencode | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_v2-report.claude-opus-4-8.md. Action=IMPLEMENT (report_v2_ko.txt + drawdown_v2.png).
+
+### 2026-06-19 11:23 | opencode | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/backtest/output/report_v2_ko.txt
+- Drawdown_v2.png already existed from prior run
+
+### 2026-06-19 10:47 | aimux | NOTE
+Enqueued request to tmux-pane:manager. req-id=20260619-104706-2758-17174 handoff=AIMemory/handoff_v2-report-done.opencode.md roles=IMPLEMENT
+
+### 2026-06-19 11:23 | opencode | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_v2-report.claude-opus-4-8.md (IMPLEMENT).
+완료: report_v2_ko.txt 생성 + drawdown_v2.png 확인. Enqueued response via aimux.
+
+### 2026-06-19 11:28 | claude-opus-4-8 | HANDOFF_CLOSED
+← opencode v2 report: ACCEPTED. report_v2_ko.txt + drawdown_v2.png done (honest, format-compliant,
+correct "no variant beats lumpsum" conclusion). Minor: v2-full MDD<lumpsum but Sharpe 0.86<0.91 →
+"close to", not "better" risk-adjusted (noted for final synthesis). v2 COMPLETE.
