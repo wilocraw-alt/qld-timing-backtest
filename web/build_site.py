@@ -218,10 +218,18 @@ def main():
     print(f"  → 생성됨 {os.path.join(data_dir, 'latest.json')}")
 
     # ---- 템플릿 복사 ----
+    build_id = updated_at.replace(":", "").replace("+", "").replace("-", "").replace("T", "")
     for fname in ["index.html", "manifest.webmanifest", "sw.js"]:
         src = os.path.join(HERE, f"template_{fname}")
         dst = os.path.join(out_dir, fname)
-        shutil.copy2(src, dst)
+        if fname == "sw.js":
+            with open(src, encoding="utf-8") as f:
+                content = f.read()
+            content = content.replace("__BUILD_ID__", build_id)
+            with open(dst, "w", encoding="utf-8") as f:
+                f.write(content)
+        else:
+            shutil.copy2(src, dst)
         print(f"  → 생성됨 {dst}")
 
     # ---- 아이콘 ----

@@ -231,8 +231,8 @@ def run_validation(site_dir):
             for lit in literal_abs:
                 val = lit.strip("\"'")
                 if not val.startswith("//") and not val.startswith("http") and not val.startswith("mailto:"):
-                    # Skip string literals used as .endsWith() arguments (path suffix, not reference)
-                    if re.search(r'endsWith\s*\(\s*' + re.escape(lit) + r'\s*\)', content):
+                    # Skip string literals used as .endsWith() or .indexOf() arguments (path suffix/check, not reference)
+                    if re.search(r'(?:endsWith|indexOf)\s*\(\s*' + re.escape(lit) + r'\s*\)', content):
                         continue
                     if val.startswith("/data") or val.startswith("/icons") or val == "/":
                         filtered_literal.append(lit)

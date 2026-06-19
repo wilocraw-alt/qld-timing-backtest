@@ -1,4 +1,4 @@
-const CACHE = "wath-signal-v1";
+const CACHE = "wath-__BUILD_ID__";
 const SHELL = [
   "./",
   "./index.html",
@@ -17,12 +17,15 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys().then(ks => Promise.all(ks.map(k => { if (k !== CACHE) return caches.delete(k); })))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
-  if (url.pathname.endsWith("/data/latest.json")) {
+  if (url.pathname.indexOf("/data/") !== -1) {
+    e.respondWith(networkFirst(e.request));
+  } else if (e.request.mode === "navigate" || url.pathname.endsWith("/index.html")) {
     e.respondWith(networkFirst(e.request));
   } else {
     e.respondWith(cacheFirst(e.request));
