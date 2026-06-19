@@ -1,0 +1,12 @@
+# 데일리 어드바이저 설정 (하드코딩 금지 — 모든 파라미터 여기서)
+monthly_budget: 300        # 매월 적립 예산 ($)
+w_core: 0.60               # 코어(SOXL) 비중
+ma_window: 120             # 추세 기준선 (일)
+buffer: 0.03               # 완충밴드 ±3% (휩쏘 방지)
+
+core_ticker: SOXL          # 코어 매매 대상 (반도체 3x)
+core_signal: SOXX          # 코어 추세 신호용 1x 지수
+satellite_ticker: QLD      # 위성 (나스닥 2x, 무규칙 보유)
+
+state_path: backtest/live/state.json
+action_path: backtest/live/today_action.txt

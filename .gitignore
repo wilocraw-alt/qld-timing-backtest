@@ -37,3 +37,8 @@ __pycache__/
 # redundant scaffold build artifacts (not project source)
 make_Harness-latest.zip
 make_Harness-v*-*/
+
+# 데일리 어드바이저 런타임(개인 상태/로그)
+backtest/live/state.json
+backtest/live/advisor.log
+backtest/live/today_action.txt

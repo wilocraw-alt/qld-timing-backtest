@@ -1184,3 +1184,8 @@ Manager RESOLVED req 20260619-163032-24155-7286 out-of-band: unit verified & acc
 [2026-06-19 19:00] NOTE claude-opus-4-8(manager) — 최종전략 보고서화 + commit. 패널 개별안 보존 + 매니저 검증 최종안.
   최종 추천=① SOXL60(120 buffer±3% 매일)+QLD40(무규칙) DCA: 강세 $5.54M MDD61% / 2022 -8% / COVID +114%. 틸트 ③공격/②방어.
   신규: ma_whipsaw.py, final_strategy.py, report_final_strategy_ko.md, panel2-{opencode,antigravity}.md.
+
+[2026-06-19 19:40] NOTE claude-opus-4-8(manager) — 데일리 어드바이저 + cron 등록.
+  backtest/live/daily_advisor.py (+advisor_config.yaml): 추천 전략① 실행, 전일 종가로 SOXX 120일선 buffer±3% 신호 판정 → 오늘 매수/매도 주식·수량 출력. 상태 state.json 영속(주문 실행 가정).
+  cron: 0 15 * * * (매일 15:00 KST, 미국장 개장 전) — 기존 ITnewsSummary 작업 보존. 검증: home에서 cron명령 동일 실행 exit0, 6월 적립→QLD 1주 매수 정상.
+  런타임파일(state.json/advisor.log/today_action.txt) gitignore. 테스트상태 초기화(첫 실제실행 클린 시작).
