@@ -74,7 +74,8 @@ def main():
               "core_on": bool(init_on), "last_contrib_month": None,
               "history": []}
 
-    today = dt.date.today()
+    now = dt.datetime.now()
+    today = now.date()
     actions = []
 
     # ---- 1) 월 적립 ----
@@ -132,7 +133,7 @@ def main():
 
     lines = []
     lines.append("=" * 56)
-    lines.append(f" 데일리 어드바이저  (작성 {today})")
+    lines.append(f" 데일리 어드바이저  실행 {now:%Y-%m-%d %H:%M:%S} (KST)")
     lines.append(f" 기준 데이터: 전일 종가 {last_date.date()}")
     lines.append("=" * 56)
     lines.append(f"[신호] {sig_t} 종가 {fmt(sig_close)} / {win}일선 {fmt(ma)} = ratio {ratio:.3f}")
@@ -154,7 +155,8 @@ def main():
 
     # ---- persist ----
     if not args.dry_run:
-        st.setdefault("history", []).append({"date": str(today), "ref_close": str(last_date.date()),
+        st.setdefault("history", []).append({"run_at": now.isoformat(timespec="seconds"),
+                                             "date": str(today), "ref_close": str(last_date.date()),
                                              "actions": actions, "total": round(total, 2)})
         st["history"] = st["history"][-400:]
         os.makedirs(os.path.dirname(state_path), exist_ok=True)
