@@ -63,14 +63,16 @@ def main():
     ratio = sig_close / ma if ma == ma and ma > 0 else float("nan")
 
     # ---- state load ----
+    st = None
     if os.path.exists(state_path):
         with open(state_path, encoding="utf-8") as f:
             st = json.load(f)
-    else:
+        if "cash" not in st:          # 구(舊) 정수주 포맷 → 소수점 포맷으로 재초기화
+            st = None
+    if st is None:
         # 최초 실행: 신호 초기화(밴드 위면 ON, 아래면 OFF)
         init_on = ratio == ratio and ratio > 1.0
-        st = {"core_shares": 0, "sat_shares": 0,
-              "core_reserve": 0.0, "sat_reserve": 0.0,
+        st = {"core_shares": 0.0, "sat_shares": 0.0, "cash": 0.0,
               "core_on": bool(init_on), "last_contrib_month": None,
               "history": []}
 
@@ -78,24 +80,16 @@ def main():
     today = now.date()
     actions = []
 
-    # ---- 1) 월 적립 ----
+    # ---- 1) 월 적립 (현금 유입) ----
     ym = f"{today.year}-{today.month:02d}"
     is_weekday = today.weekday() < 5
-    if st["last_contrib_month"] != ym and is_weekday:
-        st["core_reserve"] += budget * wc
-        st["sat_reserve"] += budget * (1 - wc)
+    new_month = st["last_contrib_month"] != ym and is_weekday
+    if new_month:
+        st["cash"] += budget
         st["last_contrib_month"] = ym
-        actions.append(f"💰 월 적립 {fmt(budget)} 유입 → 코어 {fmt(budget*wc)} / 위성 {fmt(budget*(1-wc))}")
+        actions.append(f"💰 월 적립 {fmt(budget)} 유입")
 
-    # ---- 2) 위성(QLD) 무규칙: 예약현금 전부 매수 ----
-    if st["sat_reserve"] >= sat_px:
-        q = int(st["sat_reserve"] // sat_px)
-        cost = q * sat_px
-        st["sat_shares"] += q
-        st["sat_reserve"] = round(st["sat_reserve"] - cost, 2)
-        actions.append(f"🟢 매수 {sat}  {q}주  (~{fmt(cost)}, 종가 {fmt(sat_px)})")
-
-    # ---- 3) 코어(SOXL) 신호 buffer 히스테리시스 ----
+    # ---- 2) 코어(SOXL) 신호 buffer 히스테리시스 ----
     prev_on = st["core_on"]
     if ratio == ratio:
         if prev_on and ratio < 1 - buf:
@@ -103,33 +97,40 @@ def main():
         elif (not prev_on) and ratio > 1 + buf:
             st["core_on"] = True
     flipped = st["core_on"] != prev_on
+    if flipped:
+        actions.append(f"🔁 신호 전환 {'OFF→ON' if st['core_on'] else 'ON→OFF'} (SOXX/120MA={ratio:.3f})")
 
-    if st["core_on"]:
-        if flipped:
-            actions.append(f"🔁 신호 OFF→ON (SOXX/120MA={ratio:.3f}) — {core} 재진입")
-        if st["core_reserve"] >= core_px:
-            q = int(st["core_reserve"] // core_px)
-            cost = q * core_px
-            st["core_shares"] += q
-            st["core_reserve"] = round(st["core_reserve"] - cost, 2)
-            actions.append(f"🟢 매수 {core}  {q}주  (~{fmt(cost)}, 종가 {fmt(core_px)})")
-    else:
-        if flipped and st["core_shares"] > 0:
-            proceeds = st["core_shares"] * core_px
-            actions.append(f"🔴 전량 매도 {core}  {st['core_shares']}주  (~{fmt(proceeds)}, 종가 {fmt(core_px)}) → 현금화")
-            st["core_reserve"] = round(st["core_reserve"] + proceeds, 2)
-            st["core_shares"] = 0
-        elif st["core_reserve"] > 0:
-            actions.append(f"⏸  {core} 신호 OFF (SOXX/120MA={ratio:.3f}) — 코어 현금 {fmt(st['core_reserve'])} 보관(매수 보류)")
+    # ---- 3) 소수점 목표비중 리밸런싱 (매월 적립일 또는 신호전환시) ----
+    do_rebal = new_month or flipped
+    if do_rebal:
+        total_eq = st["cash"] + st["core_shares"] * core_px + st["sat_shares"] * sat_px
+        w_core_eff = wc if st["core_on"] else 0.0     # SOXL OFF면 코어 0% → 현금
+        tgt_core_v = w_core_eff * total_eq
+        tgt_sat_v = (1 - wc) * total_eq
+        for nm, px_now, cur_sh, tgt_v in [
+                (core, core_px, st["core_shares"], tgt_core_v),
+                (sat, sat_px, st["sat_shares"], tgt_sat_v)]:
+            d_sh = tgt_v / px_now - cur_sh
+            amt = abs(d_sh) * px_now
+            if amt < 1.0:                              # $1 미만 변화는 무시
+                continue
+            mark, verb = ("🟢", "매수") if d_sh > 0 else ("🔴", "매도")
+            actions.append(f"{mark} {verb} {nm}  {abs(d_sh):.4f}주  (~{fmt(amt)}, 종가 {fmt(px_now)}) → 목표 {fmt(tgt_v)}")
+        st["core_shares"] = tgt_core_v / core_px
+        st["sat_shares"] = tgt_sat_v / sat_px
+        st["cash"] = round(total_eq - tgt_core_v - tgt_sat_v, 2)
 
     if not actions:
-        actions.append("✅ 오늘 매매 없음 — 보유 유지")
+        actions.append("✅ 오늘 매매 없음 — 보유 유지 (리밸런싱은 매월 적립일·신호전환시에만)")
 
     # ---- 평가 ----
     core_val = st["core_shares"] * core_px
     sat_val = st["sat_shares"] * sat_px
-    cash = st["core_reserve"] + st["sat_reserve"]
+    cash = st["cash"]
     total = core_val + sat_val + cash
+    cw = core_val / total * 100 if total > 0 else 0
+    sw = sat_val / total * 100 if total > 0 else 0
+    kw = cash / total * 100 if total > 0 else 0
 
     lines = []
     lines.append("=" * 56)
@@ -144,9 +145,10 @@ def main():
     for a in actions:
         lines.append(f"  - {a}")
     lines.append("")
-    lines.append("[현재 포트폴리오(추정)]")
-    lines.append(f"  {core}: {st['core_shares']}주 ({fmt(core_val)})  |  {sat}: {st['sat_shares']}주 ({fmt(sat_val)})")
-    lines.append(f"  현금: {fmt(cash)} (코어예약 {fmt(st['core_reserve'])}/위성예약 {fmt(st['sat_reserve'])})")
+    lines.append("[현재 포트폴리오(추정, 소수점)]")
+    lines.append(f"  {core}: {st['core_shares']:.4f}주 ({fmt(core_val)}, {cw:.0f}%)  |  {sat}: {st['sat_shares']:.4f}주 ({fmt(sat_val)}, {sw:.0f}%)")
+    lines.append(f"  현금: {fmt(cash)} ({kw:.0f}%)")
+    lines.append(f"  목표비중: {core} {wc*100:.0f}% / {sat} {(1-wc)*100:.0f}%  (SOXL 신호 OFF시 코어→현금)")
     lines.append(f"  총평가: {fmt(total)}")
     lines.append("-" * 56)
     lines.append("※ 정보 제공용, 투자조언 아님. 체결가는 당일 종가와 다를 수 있음.")

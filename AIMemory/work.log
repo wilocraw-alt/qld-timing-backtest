@@ -1189,3 +1189,7 @@ Manager RESOLVED req 20260619-163032-24155-7286 out-of-band: unit verified & acc
   backtest/live/daily_advisor.py (+advisor_config.yaml): 추천 전략① 실행, 전일 종가로 SOXX 120일선 buffer±3% 신호 판정 → 오늘 매수/매도 주식·수량 출력. 상태 state.json 영속(주문 실행 가정).
   cron: 0 15 * * * (매일 15:00 KST, 미국장 개장 전) — 기존 ITnewsSummary 작업 보존. 검증: home에서 cron명령 동일 실행 exit0, 6월 적립→QLD 1주 매수 정상.
   런타임파일(state.json/advisor.log/today_action.txt) gitignore. 테스트상태 초기화(첫 실제실행 클린 시작).
+
+[2026-06-19 20:25] NOTE claude-opus-4-8(manager) — 데일리 어드바이저 소수점+목표비중 리밸런싱 전환.
+  검증: 소수점 + 매월/신호전환시 60:40 리밸런싱이 정수주 ①보다 우수 — 강세 $5.58M MDD56%(vs $5.54M/61%), 2022 -2%(vs -8%), COVID +123%(vs +114%).
+  advisor 변경: 정수주·예약현금 누적 → 소수점 보유 + cash, 매월적립일/신호전환시 목표비중(SOXL60 ON시·OFF면 코어현금/QLD40)으로 리밸런싱. 구 state 포맷 자동 재초기화. 멱등 확인(같은날 재실행 무매매).
