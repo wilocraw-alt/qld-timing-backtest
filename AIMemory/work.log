@@ -520,3 +520,8 @@ Manager RESOLVED req 20260619-094152-407-7605 out-of-band: unit verified & accep
 strongly drives results: ts1000 $34k/CAGR6.3%/MDD25%, ts2500 $69k/10.1%/47%, ts5000 $125k/13.5%/49%
 (monotone return↑, cash 81→61%, MDD↑). Real lever = deployment size, not the cap itself.
 Resolved opencode nocap-regen request + antigravity nocap-tranche request.
+
+### 2026-06-19 10:24 | claude-opus-4-8 | NOTE
+git bootstrap done (user-authorized): created PRIVATE repo wilocraw-alt/qld-timing-backtest, initial
+commit (138 files = full workspace incl. make_Harness scaffold + backtest project), branch renamed
+master→main per PROJECT.md. .gitignore excludes aimux runtime/handoffs/pycache/scaffold-zip.

@@ -8,7 +8,7 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 
 생성일  : 2026-06-19
 목표    : QLD 규칙기반 투자시점 전략 백테스트 + 규칙별 ablation 효과 및 2개 비교군 대비 성과 검증
-진행    : 7/8
+진행    : 8/8 (완료)
 
 ---
 
@@ -22,7 +22,7 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
   - 주: antigravity가 metrics/baselines를 못 만들고 환경 thrash → opencode로 재배정
 - [x] **4. U-ABLATION+CLI (opencode)**: ablation.py + main.py + config.yaml — 17년 실데이터 풀파이프라인 에러0 완주, 수락
 - [x] **6. VERIFY**: opencode sanity(전 변형 PASS) + 매니저 독립검증(일매수≤$1,000 전수, lumpsum 교차 $995,646.89, 미래참조無)
-- [~] **7. 최종 리포트(사용자 보고 중) + git(사용자 승인 대기)**
+- [x] **7. 최종 리포트 + 추가실험(트랜치/익절/일한도) + git private push (wilocraw-alt/qld-timing-backtest)**
 
 ---
 
