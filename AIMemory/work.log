@@ -1053,3 +1053,68 @@ Manager RESOLVED req 20260619-143057-18747-28188 out-of-band: unit verified & ac
   FULL cost0: SOXL단독 $7,997,903(+629%, MDD90%) | TQQQ50/SOXL50 $6,243,990(Sharpe0.67 최고, MDD85%) | 3x균등 $3,689,827 | TQQQ단독 $2,552,234 | QLD $1,097,738
   OOS A/B 둘 다 SOXL계열 1-3위(robust). P2_xsec_mom은 SOXL편입으로 $404k->$802k 상승.
   핵심: 레버리지↑=원수익↑; TQQQ/SOXL 블렌드는 Sharpe까지 개선(분산); 단 MDD 85-90%+섹터집중(반도체 사후확신) 위험. 보고서에 솔직 명시.
+
+### 2026-06-19 16:05 | aimux | NOTE
+Enqueued request to tmux-pane:antigravity. req-id=20260619-160549-6740-5837 handoff=AIMemory/handoff_panel.claude-opus-4-8.md roles=OPINION
+
+### 2026-06-19 16:05 | aimux | NOTE
+Enqueued request to tmux-pane:opencode. req-id=20260619-160549-6765-5824 handoff=AIMemory/handoff_panel.claude-opus-4-8.md roles=OPINION
+
+[2026-06-19 16:40] HANDOFF claude-opus-4-8(manager) -> antigravity, opencode (OPINION 패널)
+  topic: 현재 AI 강세장 지속 vs 닷컴식 붕괴 — 각자 독립 견해 (panel-<name>.md). 코드 아님, 순수 글쓰기.
+
+### 2026-06-19 16:05 | aimux | NOTE
+Dispatched request id=20260619-160549-6740-5837 -> tmux-pane:antigravity (%1).
+
+### 2026-06-19 16:05 | aimux | NOTE
+Dispatched request id=20260619-160549-6765-5824 -> tmux-pane:opencode (%2).
+
+### 2026-06-19 16:05 | aimux | NOTE
+tmux-pane:antigravity is blocked on a HIGH-RISK user prompt (req 20260619-160549-6740-5837) — held, NOT auto-answered; escalated to the human, do not reassign.
+
+### 2026-06-19 14:35 | opencode | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_panel.claude-opus-4-8.md. Action=OPINION (AI 강세장 패널토의).
+
+### 2026-06-19 14:35 | opencode | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/panel-opencode.md
+
+### 2026-06-19 14:35 | opencode | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_panel.claude-opus-4-8.md.
+Completed: 패널 의견 작성. 입장: 단기과열 후 차별화 국면. Enqueued.
+
+### 2026-06-19 16:06 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-160631-8310-10483 handoff=AIMemory/panel-opencode.md roles=OPINION
+
+### 2026-06-19 16:06 | aimux | NOTE
+Dispatched response id=20260619-160631-8310-10483 -> tmux-pane:manager (%0).
+
+### 2026-06-19 16:06 | aimux | NOTE
+Manager RESOLVED req 20260619-160549-6765-5824 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+[2026-06-19 16:55] NOTE claude-opus-4-8(manager) panel-opencode ACCEPTED (형식 충족: 입장/강세·붕괴 논거/확률/면책). 입장=단기 과열 후 차별화, 붕괴 15%. antigravity 대기중.
+
+### 2026-06-19 16:07 | antigravity | HANDOFF_RECEIVED
+← claude-opus-4-8: AIMemory/handoff_panel.claude-opus-4-8.md. Acting on action items (OPINION).
+
+### 2026-06-19 16:07 | antigravity | FILES_CREATED
+- /home/wilowisp/Work/Personal/timing_wATH/AIMemory/panel-antigravity.md
+
+### 2026-06-19 16:07 | antigravity | HANDOFF_CLOSED
+← claude-opus-4-8: AIMemory/handoff_panel.claude-opus-4-8.md.
+Completed: Panel opinion written. Stance: "단기 과열 후 의미 있는 조정, 장기 추세 유효". Probabilities: 지속 55%, 큰조정 35%, 붕괴 10%. See AIMemory/panel-antigravity.md.
+
+### 2026-06-19 16:07 | aimux | NOTE
+Enqueued response to tmux-pane:manager. req-id=20260619-160730-10436-29399 handoff=AIMemory/panel-antigravity.md roles=GENERAL_STATUS
+
+### 2026-06-19 16:07 | aimux | NOTE
+Dispatched response id=20260619-160730-10436-29399 -> tmux-pane:manager (%0).
+
+### 2026-06-19 16:07 | aimux | NOTE
+Manager RESOLVED req 20260619-160549-6740-5837 out-of-band: unit verified & accepted without a response handoff. Inflight released without notice; 0 pending follow-up(s) dropped; later follow-ups about it will be ignored.
+
+[2026-06-19 17:05] NOTE claude-opus-4-8(manager) panel-antigravity ACCEPTED. 입장=단기 조정 후 추세 유효, 붕괴 10%. 패널 완료(opencode+antigravity+manager) → 종합 정리.
+
+[2026-06-19 17:30] NOTE claude-opus-4-8(manager) — 패널 종합 + 기대값 추천 보고서화.
+  EV(패널확률 가중): QLD+추세이탈 +14.5% > 3x+추세이탈 +12.8% > 바벨 +12.0% > QLD보유 +11.5% > 무방비3x -1.0%.
+  무방비 3x는 강세확률 75%+ 일 때만 1위(패널 42%와 거리 큼). 추천=추세관리형 바벨(핵심 QLD 60% + 위성 3x 40% w/200MA exit, DCA).
+  신규: recommendation.py, report_recommendation_ko.txt, report_panel_ko.md, dotcom_scenario.py, report_dotcom_ko.txt. → commit & push.
