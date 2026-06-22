@@ -245,11 +245,10 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
   function drawChart(canvas, series) {
     var pts = series.points;
     if (!pts || pts.length < 2) return;
-    var periodMonths = window.__chartPeriod || 3;
-    if (periodMonths > 0) {
-      var cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() - periodMonths);
-      var filtered = pts.filter(function(p) { return new Date(p.d + "T00:00:00") >= cutoff; });
+    var periodDays = window.__chartPeriod || 90;
+    if (periodDays > 0) {
+      var cutoff = Date.now() - periodDays * 86400000;
+      var filtered = pts.filter(function(p) { return new Date(p.d + "T00:00:00").getTime() >= cutoff; });
       if (filtered.length >= 2) pts = filtered;
     }
     const buf = series.buffer || 0.03;
@@ -526,9 +525,10 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '    <span class="ratio-label">1.05</span>'
       + '  </div>'
       + '  <div class="btn-row" style="margin-top:8px;gap:4px">'
-      + '    <button class="period-btn active" data-period="3" onclick="window.__setPeriod(3)">3M</button>'
-      + '    <button class="period-btn" data-period="6" onclick="window.__setPeriod(6)">6M</button>'
-      + '    <button class="period-btn" data-period="12" onclick="window.__setPeriod(12)">1Y</button>'
+      + '    <button class="period-btn" data-period="14" onclick="window.__setPeriod(14)">2W</button>'
+      + '    <button class="period-btn active" data-period="90" onclick="window.__setPeriod(90)">3M</button>'
+      + '    <button class="period-btn" data-period="180" onclick="window.__setPeriod(180)">6M</button>'
+      + '    <button class="period-btn" data-period="365" onclick="window.__setPeriod(365)">1Y</button>'
       + '  </div>'
       + '  <div class="chart-wrap"><canvas id="chart" height="200"></canvas></div>'
       + '  <div class="btn-row">'
@@ -610,11 +610,11 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     }
   }
 
-  window.__chartPeriod = 3;
-  window.__setPeriod = function(months) {
-    window.__chartPeriod = months;
+  window.__chartPeriod = 90;
+  window.__setPeriod = function(days) {
+    window.__chartPeriod = days;
     document.querySelectorAll(".period-btn").forEach(function(b) { b.classList.remove("active"); });
-    var btn = document.querySelector('.period-btn[data-period="' + months + '"]');
+    var btn = document.querySelector('.period-btn[data-period="' + days + '"]');
     if (btn) btn.classList.add("active");
     var canvas = document.getElementById("chart");
     if (canvas && cachedSeries) drawChart(canvas, cachedSeries);
