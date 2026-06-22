@@ -1,6 +1,6 @@
 # RESUME — 이어가기 가이드 (clear 후 콜드 세션용)
 
-**작성**: claude-opus-4-8 (manager) · 2026-06-20 08:25
+**작성**: claude-opus-4-8 (manager) · 2026-06-23 08:45
 **용도**: 대화 context를 clear한 뒤에도 이 파일 + 메모리 + work.log만 읽고 작업을 이어가기 위한 단일 상태 문서.
 
 ## 0. 콜드 세션 부팅 순서 (이 순서로 읽어라)
@@ -11,17 +11,17 @@
 5. `AIMemory/work.log` 끝 ~80줄 — 최신 이벤트(매니저 판정·HANDOFF).
 6. 매니저 규약: `AIMemory/briefs/manager.md` + `AIMemory/PROTOCOL.md` + `AIMemory/agents.md`.
 
-## 1. 지금 상태 (2026-06-20 기준)
+## 1. 지금 상태 (2026-06-23 기준)
 - **백테스트 연구**: 완료(`RESEARCH.md` 종합). 최종 전략 SOXL60(SOXX 120일선 ±3% buffer)+QLD40 월 $300.
 - **웹사이트**: 완료·라이브. https://wilocraw-alt.github.io/qld-timing-backtest/ (HTTP 200).
-  - GitHub Actions 매일 **08:30 KST**(`.github/workflows/daily.yml`, cron `30 23 * * *`) 자동 갱신 + workflow_dispatch.
-  - 기능: 데일리 신호 배지(ON/OFF/NEUTRAL), SOXX 120MA ±3% **3개월 시계열 차트**(▲매수 초록/▼매도 빨강 마커), 목표배분, 최신가, 🔄 새로고침 + ⟳ Actions 수동트리거, **기기별 거래로그(localStorage `wath_journal_v1`)** 평단입력→수익률, PWA 오프라인.
-- **git**: HEAD `8e8e6f8`, origin/main 동기(unpushed 0). repo **public**(사용자 승인).
+  - GitHub Actions 매일 **07:30 KST**(`.github/workflows/daily.yml`, cron `30 22 * * *`) 자동 갱신 + workflow_dispatch.
+  - 기능: 데일리 신호 배지(ON/OFF/NEUTRAL), SOXX 120MA ±3% **전기간(~500pts) 시계열 차트(2W/3M/6M/1Y 토글, 일 기반 슬라이스)**(▲매수 초록/▼매도 빨강 마커), 수집날짜 KST 제목하단 표시, 목표배분, 최신가, 🔄 새로고침 + ⟳ Actions 수동트리거, **기기별 거래로그(localStorage `wath_journal_v1`)** 평단입력→수익률·JSON 내보내기/가져오기, PWA 오프라인.
+- **git**: HEAD `20d7d7e`, origin/main 동기(unpushed 0). repo **public**(사용자 승인).
 - **워킹트리**: `AIMemory/work.log`만 상시 modified(오케스트레이션 로그 — 일부러 커밋 안 함, self-loop 방지).
 
 ## 2. 파일 구조 (웹)
-- `web/build_site.py` — 빌더. `--out <dir> [--config backtest/live/advisor_config.yaml]`. yfinance로 SOXX/SOXL/QLD 받아 `data/latest.json`(신호 스냅샷)+`data/series.json`(3개월 차트, ~65pts) 산출, 템플릿을 out으로 복사하며 `sw.js`의 `__BUILD_ID__`를 updated_at 숫자로 치환(캐시 버전).
-- `web/template_index.html` — 모바일 PWA 셸(인라인 바닐라 JS, 전부 상대경로 `./`). 차트·거래로그·새로고침.
+- `web/build_site.py` — 빌더. `--out <dir> [--config backtest/live/advisor_config.yaml]`. yfinance로 SOXX/SOXL/QLD 받아 `data/latest.json`(신호 스냅샷)+`data/series.json`(전기간 ~500pts, 약 2년) 산출, 템플릿을 out으로 복사하며 `sw.js`의 `__BUILD_ID__`를 updated_at 숫자로 치환(캐시 버전).
+- `web/template_index.html` — 모바일 PWA 셸(인라인 바닐라 JS, 전부 상대경로 `./`). 차트(기간 토글 2W/3M/6M/1Y, 일 기반 슬라이스)·수집날짜 KST 제목하단 표시·거래로그(JSON 내보내기/가져오기)·새로고침.
 - `web/template_sw.js` — 서비스워커. CACHE=`wath-__BUILD_ID__`(빌드별), `/data/`+네비게이션 network-first, 그외 cacheFirst, activate에서 옛 캐시 삭제+clients.claim.
 - `web/template_manifest.webmanifest` — PWA manifest(standalone, start_url/scope=`./`).
 - `web/validate_site.py` — stdlib 배포전 검증(필수파일/manifest/아이콘PNG/sw precache/PWA메타/절대경로/스키마 + README·RESEARCH 링크). `python3 web/validate_site.py <dir>`.
@@ -54,6 +54,5 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://wilocraw-alt.github.io/qld-tim
 
 ## 6. 다음에 할 만한 것(미요청·아이디어)
 - PC 가독성: 셸에 max-width 컨테이너(현재 풀폭). 
-- 거래로그 내보내기/가져오기(JSON), 기기 간 수동 이전.
-- series 기간 토글(3M/6M/1Y). 
 - daily_advisor state.json 기반 실제 보유 연동(현재 웹은 무상태 신호 + 사용자 입력 로그).
+- (완료) 차트 기간 토글 2W/3M/6M/1Y + 거래로그 JSON 내보내기/가져오기 + 수집날짜 KST 표시.

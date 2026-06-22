@@ -40,6 +40,8 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 
 - [x] **W-J. SW 캐시 정체 FIX** (opencode): CACHE 빌드별 버전화(__BUILD_ID__←updated_at) + /data·네비게이션 network-first + clients.claim. PC가 옛 셸(거래로그 미포함)을 캐시하던 문제 해소. 라이브 검증.
 
+- [x] **W-K. 웹 개선 5종 + cron 07:30 KST** (opencode): 차트 기간토글 2W/3M/6M/1Y(일 기반 슬라이스, series 전기간 ~500pts) + 수집날짜 KST 제목하단 표시 + 거래로그 JSON 내보내기/가져오기(로컬 전용) + 빌드 cron 08:30→07:30 KST. 매니저 라이브검증(2W/3M/6M/1Y·8/8 PASS). commit a34ad7b·20d7d7e.
+
 배포 URL: https://wilocraw-alt.github.io/qld-timing-backtest/ (public, 사용자 승인)
 참고: repo public 전환(무료 Pages 제약, 사용자 승인). 푸시 시 workflow scope 필요. 민감 런타임(state.json/advisor.log/.env)은 .gitignore 미추적. SW 캐시는 빌드별 버전화되어 배포 시 자동 갱신(예전엔 wath-signal-v1 고정이라 정체).
 
@@ -47,3 +49,4 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 
 - 2026-06-19 — 0단계 완료: 요구사항 확정(트랜치 균등10%/일상한$1k/전체기간/$10k, 비교군 2종), 설계 PROPOSE 병렬→수렴(plan-final)
 - 2026-06-20 — 웹사이트 후속: README 프로젝트화 + 데일리 신호 PWA(web/) + GH Actions 일일배포(.github/workflows/daily.yml, 08:30 KST) + 정적검증 하니스. 라이브 https://wilocraw-alt.github.io/qld-timing-backtest/ . SW 등록 FIX 재배포 진행 중.
+- 2026-06-23 — 웹 개선 5종 배포: 차트 2W/3M/6M/1Y 토글·수집날짜 KST 표시·거래로그 JSON export/import·cron 07:30 KST. 라이브 검증 통과(20d7d7e).
