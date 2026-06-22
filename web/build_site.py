@@ -151,9 +151,7 @@ def main():
     os.makedirs(data_dir, exist_ok=True)
     sig_series = px[sig_t]  # daily close series, ~2y
     ma_series = sig_series.rolling(ma_win).mean()
-    cutoff = sig_series.index[-1] - pd.DateOffset(months=3)
-    mask = sig_series.index >= cutoff
-    filtered_dates = sig_series.index[mask]
+    filtered_dates = sig_series.index
     series_pts = []
     for idx in filtered_dates:
         ma_val = float(ma_series.loc[idx]) if pd.notna(ma_series.loc[idx]) else None

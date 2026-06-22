@@ -46,6 +46,9 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 .status-dot.open { background: #34a853; }
 .status-dot.closed { background: #ea4335; }
 .loading { text-align: center; padding: 40px 0; color: #9aa0a6; font-size: 14px; }
+.period-btn { flex:1; padding:8px; border-radius:8px; font-size:13px; font-weight:600; border:1px solid #3c4043; background:transparent; color:#9aa0a6; cursor:pointer; min-height:36px; -webkit-tap-highlight-color:transparent; }
+.period-btn.active { background:#303134; color:#e8eaed; border-color:#5f6368; }
+.period-btn:active { background:#404348; }
 .btn-row { display: flex; gap: 10px; margin-top: 14px; }
 .btn-primary, .btn-secondary { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 0; border-radius: 10px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; min-height: 44px; -webkit-tap-highlight-color: transparent; text-decoration: none; }
 .btn-primary { background: #303134; color: #e8eaed; }
@@ -86,6 +89,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 <body>
 <h1>타이밍 wATH</h1>
 <div class="subtitle">SOXL60 + QLD40 — 데일리 추세 신호</div>
+<div id="dataInfo" class="meta-line" style="justify-content:center;margin-bottom:16px;display:none"></div>
 
 <div id="app" class="loading">데이터 불러오는 중...</div>
 <div id="toast" class="toast" style="display:none"></div>
@@ -239,8 +243,15 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
   }
 
   function drawChart(canvas, series) {
-    const pts = series.points;
+    var pts = series.points;
     if (!pts || pts.length < 2) return;
+    var periodMonths = window.__chartPeriod || 3;
+    if (periodMonths > 0) {
+      var cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - periodMonths);
+      var filtered = pts.filter(function(p) { return new Date(p.d + "T00:00:00") >= cutoff; });
+      if (filtered.length >= 2) pts = filtered;
+    }
     const buf = series.buffer || 0.03;
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -474,6 +485,17 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     const signal = d.signal, market = d.market, prices = d.prices;
     const target = d.target, conclusion = d.conclusion;
 
+    // 작업 B: 수집날짜 KST 제목 아래 명확히 표시
+    var upd = new Date(d.updated_at);
+    var dateLong = upd.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Seoul" });
+    var timeShort = upd.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" });
+    var infoEl = document.getElementById("dataInfo");
+    if (infoEl) {
+      infoEl.innerHTML = '<span>📅 ' + dateLong + ' ' + timeShort + ' 갱신 (KST)</span>'
+        + (d.ref_close ? '<span>기준 종가: ' + d.ref_close + '</span>' : '');
+      infoEl.style.display = "flex";
+    }
+
     const stateLabel = { ON: "매수", OFF: "현금", NEUTRAL: "관망" };
     const badgeCls = { ON: "on", OFF: "off", NEUTRAL: "neutral" };
     const s = signal.state;
@@ -502,6 +524,11 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '      <div class="ratio-marker lower" style="left:' + ((signal.lower - 0.95) / 0.10 * 100) + '%"></div>'
       + '    </div>'
       + '    <span class="ratio-label">1.05</span>'
+      + '  </div>'
+      + '  <div class="btn-row" style="margin-top:8px;gap:4px">'
+      + '    <button class="period-btn active" data-period="3" onclick="window.__setPeriod(3)">3M</button>'
+      + '    <button class="period-btn" data-period="6" onclick="window.__setPeriod(6)">6M</button>'
+      + '    <button class="period-btn" data-period="12" onclick="window.__setPeriod(12)">1Y</button>'
       + '  </div>'
       + '  <div class="chart-wrap"><canvas id="chart" height="200"></canvas></div>'
       + '  <div class="btn-row">'
@@ -537,6 +564,11 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '  <button class="form-btn" onclick="window.__addEntry()">+ 추가</button>'
       + '  <div id="journalSummary"></div>'
       + '  <div id="journalList"></div>'
+      + '  <div class="btn-row" style="margin-top:10px">'
+      + '    <button class="btn-primary" onclick="window.__exportJournal()">📤 내보내기</button>'
+      + '    <button class="btn-primary" onclick="window.__importJournal()">📥 가져오기</button>'
+      + '  </div>'
+      + '  <input type="file" id="journalFileInput" accept=".json" style="display:none" onchange="window.__handleImport(event)">'
       + '  <div style="font-size:10px;color:#5f6368;text-align:center;margin-top:6px">\uD83D\uDD12 기기별 저장 (localStorage) — 서버 전송 없음</div>'
       + '</div>'
 
@@ -577,6 +609,63 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       if (canvas) drawChart(canvas, cachedSeries);
     }
   }
+
+  window.__chartPeriod = 3;
+  window.__setPeriod = function(months) {
+    window.__chartPeriod = months;
+    document.querySelectorAll(".period-btn").forEach(function(b) { b.classList.remove("active"); });
+    var btn = document.querySelector('.period-btn[data-period="' + months + '"]');
+    if (btn) btn.classList.add("active");
+    var canvas = document.getElementById("chart");
+    if (canvas && cachedSeries) drawChart(canvas, cachedSeries);
+  };
+
+  window.__exportJournal = function() {
+    var data = localStorage.getItem(LS_KEY) || "[]";
+    var blob = new Blob([data], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    var now = new Date();
+    var ds = now.getFullYear() + ("0" + (now.getMonth()+1)).slice(-2) + ("0" + now.getDate()).slice(-2);
+    a.download = "wath_journal_" + ds + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  window.__importJournal = function() {
+    document.getElementById("journalFileInput").click();
+  };
+
+  window.__handleImport = function(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var data = JSON.parse(e.target.result);
+        if (!Array.isArray(data)) throw new Error("배열 형식이 아닙니다");
+        data.forEach(function(entry, i) {
+          if (!entry.id || !entry.date || !entry.type || !entry.ticker || !entry.price) {
+            throw new Error(i + "번 항목에 필수 필드(id, date, type, ticker, price) 누락");
+          }
+        });
+        if (!confirm("거래 기록을 가져옵니다. 현재 데이터를 덮어씁니다. 계속하시겠습니까?")) return;
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+        renderJournal();
+        var canvas = document.getElementById("chart");
+        if (canvas && cachedSeries) drawChart(canvas, cachedSeries);
+        toast.textContent = "✅ 가져오기 완료 (" + data.length + "개 항목)";
+        toast.style.display = "block";
+      } catch(err) {
+        alert("❌ 잘못된 파일입니다: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  };
 
   window.__refresh = function() {
     loadData().then(function() { loadSeries(); });
