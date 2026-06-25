@@ -48,9 +48,11 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 ## 웹 v2 추가요구 (2026-06-25) — 티커 select / 거래목록 UX / 현재배분·리밸런싱
 
 - [x] **V0. 요구확정 + PROPOSE→수렴**: 사용자 4결정(전체리밸런싱·신호반영·거래기록수량합산·SOXL/QLD) + NEUTRAL=보유상태기반동적. opencode·antigravity PROPOSE 수렴 → plan_web-v2-final.
-- [ ] **V-IMPL (opencode)**: template_index.html에 Req1(티커 select)+Req2(종목요약강화·목록제한더보기·폼접이식·삭제confirm)+Req3(현재배분%·리밸런싱 매수/매도$·주수, 신호ON/OFF/NEUTRAL분기) 구현 + window.__computeRebalance 순수함수 노출.
-- [ ] **V-TESTGEN (antigravity)**: web/test_rebalance.mjs Node 단위테스트(vm 추출, 8케이스) — 병렬.
-- [ ] **V-VERIFY (opencode, 후행)**: build_site+validate_site+node test_rebalance.mjs 실행 pass/fail+수치 보고, validate_site에 정적검사 추가.
+- [x] **V-IMPL (opencode)**: template_index.html에 Req1(티커 select)+Req2(종목요약강화·목록20제한더보기·폼접이식·삭제confirm)+Req3(현재배분%·리밸런싱 매수/매도$·주수, 신호ON/OFF/NEUTRAL분기) 구현 + window.__computeRebalance 순수함수 노출. 커밋 953e283.
+- [x] **V-TESTGEN (antigravity)**: web/test_rebalance.mjs Node 단위테스트(vm 추출, 8시나리오/31assertion). ※범위초과로 validate_site.py도 편집(검사9~11) — 결과 클린.
+- [x] **V-VERIFY (opencode)**: build_site 성공 + validate_site 11/11 + node test_rebalance.mjs 31/31. FIX불요. validate_site 정적검사 추가.
+- [x] **V-RENDER (opencode)**: playwright 헤드리스 렌더 스모크 18/18 PASS(select·폼토글·20제한더보기·보유수량·평단·리밸런싱 현재/목표/매수매도·삭제confirm·페이지에러0). 초기 [object Object] 에러는 테스트하니스 버그(JSON.stringify 누락)로 확정·수정 — 앱 무결. 템플릿 클린(디버그 잔여無).
+- [x] **V-SHIP**: 커밋 953e283 push(wilocraw-alt/qld-timing-backtest main). web/ + CHECKLIST/PROJECT/TESTING-web-v2.md만. 테스트가이드 TESTING-web-v2.md.
 
 ## 진행 이력
 
