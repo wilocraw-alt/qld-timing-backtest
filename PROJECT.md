@@ -26,6 +26,12 @@ f = 20
 
 QLD를 대상으로 백테스트 결과를 알려줘. 
 
+### 2026-06-25 목 추가요청
+
+- QLD / SOXL을 직접 입력하는 것이 아니라 select로 선택할 수 있게 해줘.
+- 추가가 많이 되면 중간에 평단을 입력하는게 길어지면 죽 길어지는 건가? UI/UX 측면에서 검토해줘.
+- 아래 비율을 보면 목표배분 40 60만 보이는데 현재 배분 비율과, 어떤 쪽을 얼마만큼 사면 배분이 맞는지 현재 단가를 기준으로 계산해서 보여줘.
+
 
 ---
 
@@ -35,7 +41,7 @@ QLD를 대상으로 백테스트 결과를 알려줘.
 
 - **이름**: qld-timing-backtest
 - **목적**: QLD 규칙기반 투자시점 전략 백테스트 + 규칙별 ablation 효과 및 2개 비교군 대비 성과 검증
-- **상태**: 완료 — 백테스트 연구(RESEARCH.md) + 라이브 PWA 웹사이트(https://wilocraw-alt.github.io/qld-timing-backtest/, 차트 2W/3M/6M/1Y 토글·수집날짜 KST 표시·거래로그 JSON 내보내기/가져오기, GH Actions 매일 07:30 KST 자동갱신). **이어가기: `AIMemory/RESUME.claude-opus-4-8.md` 참조.**
+- **상태**: 완료 + 웹 v2 추가(2026-06-25) — 백테스트 연구(RESEARCH.md) + 라이브 PWA(https://wilocraw-alt.github.io/qld-timing-backtest/). v2: 거래 티커 SOXL/QLD select·거래목록 UX개선(종목요약/목록20제한·더보기/폼접이식/삭제확인)·목표배분 카드에 현재배분%+리밸런싱(매수/매도 $·주수, 신호 ON/OFF/NEUTRAL 분기). 자동검증 31/31(계산)·11/11(정적) 통과, 헤드리스 렌더 검증 진행 중. 테스트법: `TESTING-web-v2.md`. **이어가기: `AIMemory/RESUME.claude-opus-4-8.md` 참조.**
 - **profile**: research  <!-- dev | research | docs | data | paper 중 택1. Claude가 인테이크에서 추천. paper=완료된 aimux 프로젝트의 AIMemory/를 입력으로 논문 작성 -->
 - **입력**: yfinance QLD 시세(전체기간) + 전략 파라미터(n,m,a,b,c,d,e,f / 초기자본 / 일상한)
 - **출력**: 백테스트 엔진(py) + 변형·비교군 결과 CSV + 자산곡선 플롯 + 한국어 요약 리포트

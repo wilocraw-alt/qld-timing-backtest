@@ -84,6 +84,10 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 .summary-cell .s-val { font-size: 16px; font-weight: 700; }
 .summary-cell .s-label { font-size: 10px; color: #9aa0a6; }
 .empty-list { text-align: center; color: #5f6368; font-size: 12px; padding: 16px 0; }
+.sm-btn { display:block;width:100%;padding:10px;background:#22252b;color:#9aa0a6;border:1px solid #3c4043;border-radius:8px;font-size:13px;cursor:pointer;min-height:44px;margin-top:6px;text-align:center; }
+.sm-btn:active { background:#303134; }
+.warn-badge { display:inline-block;background:#5c1a1a;color:#f2c4c4;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px; }
+.alloc-note { font-size:11px;color:#9aa0a6;text-align:center;margin-top:6px;padding:6px;background:#22252b;border-radius:8px; }
 </style>
 </head>
 <body>
@@ -107,6 +111,96 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
   function getJournal() { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
   function saveJournal(j) { localStorage.setItem(LS_KEY, JSON.stringify(j)); }
 
+  window.__computeRebalance = function(journal, prices, signalState) {
+    var soxlHeld = 0, qldHeld = 0;
+    var soxlBuyCost = 0, soxlBuyQty = 0;
+    var qldBuyCost = 0, qldBuyQty = 0;
+    var warnings = [];
+    var missingQtySOXL = false, missingQtyQLD = false;
+
+    for (var i = 0; i < journal.length; i++) {
+      var e = journal[i];
+      var qty = e.qty || 0;
+      if (e.qty === undefined || e.qty === null) {
+        if (e.ticker === "SOXL") missingQtySOXL = true;
+        else if (e.ticker === "QLD") missingQtyQLD = true;
+      }
+      if (e.ticker === "SOXL") {
+        if (e.type === "buy") { soxlHeld += qty; soxlBuyCost += e.price * qty; soxlBuyQty += qty; }
+        else { soxlHeld -= qty; }
+      } else if (e.ticker === "QLD") {
+        if (e.type === "buy") { qldHeld += qty; qldBuyCost += e.price * qty; qldBuyQty += qty; }
+        else { qldHeld -= qty; }
+      }
+    }
+    if (soxlHeld < 0) { warnings.push("SOXL 보유수량 음수→0 처리"); soxlHeld = 0; }
+    if (qldHeld < 0) { warnings.push("QLD 보유수량 음수→0 처리"); qldHeld = 0; }
+    if (missingQtySOXL) warnings.push("SOXL: 수량 미입력 항목 있음 — 정확도 저하");
+    if (missingQtyQLD) warnings.push("QLD: 수량 미입력 항목 있음 — 정확도 저하");
+
+    var soxlPrice = prices && prices.SOXL ? prices.SOXL : 0;
+    var qldPrice = prices && prices.QLD ? prices.QLD : 0;
+    var soxlVal = soxlHeld * soxlPrice;
+    var qldVal = qldHeld * qldPrice;
+    var base = soxlVal + qldVal;
+
+    if (!soxlPrice && soxlHeld > 0) warnings.push("SOXL 시세 없음");
+    if (!qldPrice && qldHeld > 0) warnings.push("QLD 시세 없음");
+
+    var soxlPct = 0, qldPct = 0;
+    if (base > 0) { soxlPct = soxlVal / base; qldPct = qldVal / base; }
+
+    var effectiveState = signalState;
+    var targetSOXL, targetQLD, cashTarget;
+    if (signalState === "ON") {
+      effectiveState = "ON";
+      targetSOXL = 0.6; targetQLD = 0.4; cashTarget = 0;
+    } else if (signalState === "OFF") {
+      effectiveState = "OFF";
+      targetSOXL = 0; targetQLD = 0.4; cashTarget = 0.6;
+    } else {
+      if (soxlVal > 1) {
+        effectiveState = "NEUTRAL_HELD";
+        targetSOXL = 0.6; targetQLD = 0.4; cashTarget = 0;
+      } else {
+        effectiveState = "NEUTRAL_FLAT";
+        targetSOXL = 0; targetQLD = 0.4; cashTarget = 0.6;
+      }
+    }
+
+    function dustAction(ticker, targetPct, currentVal, currentHeld, price) {
+      if (base === 0 || !price) return { side: "hold", usd: 0, shares: 0 };
+      var targetVal = base * targetPct;
+      var delta = targetVal - currentVal;
+      if (Math.abs(delta) < 1 && currentHeld > 0) return { side: "hold", usd: 0, shares: 0 };
+      var shares = Math.abs(delta) / price;
+      if (shares < 0.001) return { side: "hold", usd: 0, shares: 0 };
+      var side = delta > 0 ? "buy" : "sell";
+      return { side: side, usd: Math.abs(delta), shares: shares };
+    }
+    var soxlAction = dustAction("SOXL", targetSOXL, soxlVal, soxlHeld, soxlPrice);
+    var qldAction = dustAction("QLD", targetQLD, qldVal, qldHeld, qldPrice);
+
+    var note = "";
+    if (signalState === "ON") note = "신호 ON — SOXL 60% / QLD 40% 목표";
+    else if (signalState === "OFF") note = "신호 OFF — SOXL 전량 매도 → 현금 60%";
+    else if (effectiveState === "NEUTRAL_HELD") note = "신호 NEUTRAL — SOXL 보유중 → 60/40 유지";
+    else note = "신호 NEUTRAL — SOXL 미보유 → 현금 유지";
+
+    return {
+      base: base,
+      holdings: { SOXL: soxlHeld, QLD: qldHeld },
+      value: { SOXL: soxlVal, QLD: qldVal },
+      currentPct: { SOXL: soxlPct, QLD: qldPct },
+      targetPct: { SOXL: targetSOXL, QLD: targetQLD },
+      cashTargetPct: cashTarget,
+      effectiveState: effectiveState,
+      actions: { SOXL: soxlAction, QLD: qldAction },
+      warnings: warnings,
+      note: note
+    };
+  };
+
   async function loadData() {
     try {
       const res = await fetch("./data/latest.json?_=" + Date.now(), { cache: "no-store" });
@@ -121,6 +215,7 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       toast.style.display = "none";
       return d;
     } catch(e) {
+      console.error("loadData error:", e && e.message ? e.message : e);
       if (cachedData) {
         toast.textContent = "⚠️ 오프라인 — 캐시된 데이터 표시 중";
         toast.style.display = "block";
@@ -159,11 +254,27 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
   };
 
   window.__deleteEntry = function(id) {
+    if (!confirm("이 거래를 삭제하시겠습니까?")) return;
     var j = getJournal().filter(function(e) { return e.id !== id; });
     saveJournal(j);
     renderJournal();
     var canvas = document.getElementById("chart");
     if (canvas && cachedSeries) drawChart(canvas, cachedSeries);
+  };
+
+  window.__journalShowAll = false;
+  window.__toggleJournalList = function() {
+    window.__journalShowAll = !window.__journalShowAll;
+    renderJournal();
+  };
+
+  window.__toggleJournalForm = function() {
+    var form = document.getElementById("journalForm");
+    var btn = document.getElementById("journalToggleBtn");
+    if (!form || !btn) return;
+    var shown = form.style.display !== "none";
+    form.style.display = shown ? "none" : "block";
+    btn.textContent = shown ? "+ 거래 추가" : "− 접기";
   };
 
   function renderJournal() {
@@ -173,32 +284,36 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     if (!list) return;
     var prices = (cachedData && cachedData.prices) || {};
 
-    // summary
-    var buysByTicker = {}, sellsByTicker = {};
+    // holdings per ticker
+    var holdQty = {}, buyCost = {}, buyQty = {};
     j.forEach(function(e) {
-      if (e.type === "buy") {
-        if (!buysByTicker[e.ticker]) buysByTicker[e.ticker] = { cost: 0, qty: 0 };
-        buysByTicker[e.ticker].cost += e.price * (e.qty || 1);
-        buysByTicker[e.ticker].qty += (e.qty || 1);
-      } else {
-        if (!sellsByTicker[e.ticker]) sellsByTicker[e.ticker] = { value: 0, qty: 0 };
-        sellsByTicker[e.ticker].value += e.price * (e.qty || 1);
-        sellsByTicker[e.ticker].qty += (e.qty || 1);
-      }
+      if (!holdQty[e.ticker]) { holdQty[e.ticker] = 0; buyCost[e.ticker] = 0; buyQty[e.ticker] = 0; }
+      var qty = e.qty || 0;
+      if (e.type === "buy") { holdQty[e.ticker] += qty; buyCost[e.ticker] += e.price * qty; buyQty[e.ticker] += qty; }
+      else { holdQty[e.ticker] -= qty; }
     });
-    var allTickers = Object.keys(buysByTicker);
+    var tickers = Object.keys(holdQty);
     var shtml = "";
-    if (allTickers.length > 0) {
+    if (tickers.length > 0) {
       shtml = '<div class="summary-grid">';
-      allTickers.forEach(function(t) {
-        var b = buysByTicker[t];
-        var avgCost = b.cost / b.qty;
+      tickers.forEach(function(t) {
+        var h = holdQty[t] || 0;
         var cur = prices[t];
-        var plPct = cur ? (cur - avgCost) / avgCost * 100 : null;
+        var avgCost = buyQty[t] > 0 ? buyCost[t] / buyQty[t] : 0;
+        var curVal = cur ? cur * h : 0;
+        var costBasis = avgCost * h;
+        var plVal = curVal - costBasis;
+        var plPct = costBasis > 0 ? (plVal / costBasis * 100) : null;
         var plCls = plPct !== null ? (plPct > 0.5 ? "pos" : plPct < -0.5 ? "neg" : "z") : "z";
-        shtml += '<div class="summary-cell"><div class="s-val" style="color:' + (plCls === "pos" ? "#34a853" : plCls === "neg" ? "#ea4335" : "#9aa0a6") + '">'
+        var plColor = plCls === "pos" ? "#34a853" : plCls === "neg" ? "#ea4335" : "#9aa0a6";
+        shtml += '<div class="summary-cell">'
+          + '<div class="s-val" style="color:' + plColor + '">'
           + (plPct !== null ? (plPct > 0 ? "+" : "") + plPct.toFixed(1) + "%" : "?")
-          + '</div><div class="s-label">' + t + ' 평단</div></div>';
+          + '</div>'
+          + '<div class="s-label">' + t + '</div>'
+          + '<div style="font-size:11px;color:#9aa0a6">' + h.toFixed(h % 1 === 0 ? 0 : 3) + '주 @$' + avgCost.toFixed(2) + '</div>'
+          + (cur ? '<div style="font-size:11px;color:#9aa0a6">$' + cur.toFixed(2) + ' → $' + curVal.toFixed(0) + '</div>' : '')
+          + '</div>';
       });
       shtml += '</div>';
     } else {
@@ -206,12 +321,17 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     }
     summ.innerHTML = shtml;
 
-    // list
+    // list — max 20 with toggle
+    var showAll = window.__journalShowAll;
+    var maxItems = 20;
     if (j.length === 0) {
       list.innerHTML = '<div class="empty-list">아직 기록이 없습니다</div>';
     } else {
       var lhtml = "";
-      for (var i = j.length - 1; i >= 0; i--) {
+      var total = j.length;
+      var start = Math.max(0, total - 1);
+      var end = showAll ? -1 : Math.max(0, total - 1 - maxItems);
+      for (var i = start; i > end; i--) {
         var e = j[i];
         var cur = prices[e.ticker];
         var plStr = "", plCls = "z";
@@ -227,16 +347,21 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
         var tagCls = e.type === "buy" ? "buy" : "sell";
         var tagLabel = e.type === "buy" ? "매수" : "매도";
         var dateLabel = e.date.slice(2);
-        var tickerLabel = e.ticker;
         var mainLabel = "@$" + e.price.toFixed(2);
         if (e.qty) mainLabel += " \u00D7" + e.qty;
         if (e.memo) mainLabel += " " + e.memo;
         lhtml += '<div class="journal-item journal-' + e.type + '">'
           + '<span class="j-tag ' + tagCls + '">' + tagLabel + '</span>'
-          + '<div class="j-item-main"><div class="j-item-date">' + dateLabel + ' ' + tickerLabel + ' ' + mainLabel + '</div>'
+          + '<div class="j-item-main"><div class="j-item-date">' + dateLabel + ' ' + e.ticker + ' ' + mainLabel + '</div>'
           + '<span class="j-item-pl ' + plCls + '">' + plStr + '</span></div>'
           + '<button class="j-del" onclick="window.__deleteEntry(' + e.id + ')">\u2716</button>'
           + '</div>';
+      }
+      var hidden = total - maxItems;
+      if (hidden > 0) {
+        lhtml += '<button class="sm-btn" onclick="window.__toggleJournalList()">'
+          + (showAll ? '\u25B2 접기' : '\u25BC 더 보기 (+' + hidden + ')')
+          + '</button>';
       }
       list.innerHTML = lhtml;
     }
@@ -549,42 +674,90 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
 
       + '<div class="card">'
       + '  <div class="card-label">거래 기록</div>'
-      + '  <div class="form-row">'
-      + '    <input type="date" id="jDate" class="form-input" value="' + todayStr + '" style="flex:2">'
-      + '    <select id="jType" class="form-select" style="flex:1"><option value="buy">매수</option><option value="sell">매도</option></select>'
-      + '  </div>'
-      + '  <div class="form-row">'
-      + '    <input type="text" id="jTicker" class="form-input" placeholder="티커" value="SOXL" style="flex:1">'
-      + '    <input type="number" id="jPrice" class="form-input" placeholder="평단가 $" step="0.01" style="flex:2">'
-      + '  </div>'
-      + '  <div class="form-row">'
-      + '    <input type="number" id="jQty" class="form-input" placeholder="수량(선택)" step="0.001" style="flex:1">'
-      + '    <input type="text" id="jMemo" class="form-input" placeholder="메모(선택)" style="flex:2">'
-      + '  </div>'
-      + '  <button class="form-btn" onclick="window.__addEntry()">+ 추가</button>'
-      + '  <div id="journalSummary"></div>'
-      + '  <div id="journalList"></div>'
-      + '  <div class="btn-row" style="margin-top:10px">'
+      + '  <div class="btn-row" style="margin-bottom:8px">'
+      + '    <button class="btn-primary" onclick="window.__toggleJournalForm()" id="journalToggleBtn">+ 거래 추가</button>'
       + '    <button class="btn-primary" onclick="window.__exportJournal()">📤 내보내기</button>'
       + '    <button class="btn-primary" onclick="window.__importJournal()">📥 가져오기</button>'
       + '  </div>'
       + '  <input type="file" id="journalFileInput" accept=".json" style="display:none" onchange="window.__handleImport(event)">'
+      + '  <div id="journalForm" style="display:none">'
+      + '    <div class="form-row">'
+      + '      <input type="date" id="jDate" class="form-input" value="' + todayStr + '" style="flex:2">'
+      + '      <select id="jType" class="form-select" style="flex:1"><option value="buy">매수</option><option value="sell">매도</option></select>'
+      + '    </div>'
+      + '    <div class="form-row">'
+      + '      <select id="jTicker" class="form-select" style="flex:1"><option value="SOXL" selected>SOXL</option><option value="QLD">QLD</option></select>'
+      + '      <input type="number" id="jPrice" class="form-input" placeholder="평단가 $" step="0.01" style="flex:2">'
+      + '    </div>'
+      + '    <div class="form-row">'
+      + '      <input type="number" id="jQty" class="form-input" placeholder="수량(선택)" step="0.001" style="flex:1">'
+      + '      <input type="text" id="jMemo" class="form-input" placeholder="메모(선택)" style="flex:2">'
+      + '    </div>'
+      + '    <button class="form-btn" onclick="window.__addEntry()">+ 추가</button>'
+      + '  </div>'
+      + '  <div id="journalSummary"></div>'
+      + '  <div id="journalList"></div>'
       + '  <div style="font-size:10px;color:#5f6368;text-align:center;margin-top:6px">\uD83D\uDD12 기기별 저장 (localStorage) — 서버 전송 없음</div>'
       + '</div>'
 
       + '<div class="card">'
       + '  <div class="card-label">목표 배분</div>'
-      + '  <div class="target-row">'
-      + '    <div class="target-card">'
-      + '      <div class="target-pct">' + target.core_pct + '%</div>'
-      + '      <div class="target-ticker">' + target.core_ticker + '</div>'
-      + (s === "OFF" ? '<div class="target-note">\u2192 현금</div>' : "")
-      + '    </div>'
-      + '    <div class="target-card">'
-      + '      <div class="target-pct">' + target.satellite_pct + '%</div>'
-      + '      <div class="target-ticker">' + target.satellite_ticker + '</div>'
-      + '    </div>'
-      + '  </div>'
+      + (function() {
+        var j = getJournal();
+        var rb = j.length > 0 ? window.__computeRebalance(j, d.prices, d.signal.state) : null;
+        if (!rb || rb.base === 0) {
+          var cp = target.core_pct, sp = target.satellite_pct;
+          var ct = target.core_ticker, st = target.satellite_ticker;
+          return '<div class="target-row">'
+            + '  <div class="target-card">'
+            + '    <div class="target-pct">' + cp + '%</div>'
+            + '    <div class="target-ticker">' + ct + '</div>'
+            + (s === "OFF" ? '<div class="target-note">\u2192 현금</div>' : "")
+            + '  </div>'
+            + '  <div class="target-card">'
+            + '    <div class="target-pct">' + sp + '%</div>'
+            + '    <div class="target-ticker">' + st + '</div>'
+            + '  </div>'
+            + '</div>'
+            + '<div class="alloc-note">보유 없음 — 거래 추가시 계산</div>';
+        }
+        function actStr(a, ticker) {
+          if (a.side === "hold") return "유지";
+          var label = a.side === "buy" ? "매수" : "매도";
+          return label + " $" + a.usd.toFixed(0) + " / " + a.shares.toFixed(a.shares > 10 ? 0 : 1) + "주";
+        }
+        function pctStr(v) { return (v * 100).toFixed(0) + "%"; }
+        var whtml = '<div class="alloc-note">' + rb.note + '</div>'
+          + '<div class="target-row">'
+          + '  <div class="target-card">'
+          + '    <div class="target-pct" style="font-size:22px">' + pctStr(rb.targetPct.SOXL) + '</div>'
+          + '    <div class="target-ticker">' + target.core_ticker + ' 목표</div>'
+          + '    <div style="font-size:15px;font-weight:700;color:' + (rb.currentPct.SOXL > rb.targetPct.SOXL ? "#ea4335" : "#34a853") + ';margin-top:4px">'
+          +       pctStr(rb.currentPct.SOXL) + ' 현재</div>'
+          + '    <div style="font-size:13px;color:#e8eaed;margin-top:4px">' + actStr(rb.actions.SOXL, "SOXL") + '</div>'
+          + (rb.holdings.SOXL > 0 ? '<div style="font-size:11px;color:#9aa0a6">' + rb.holdings.SOXL.toFixed(rb.holdings.SOXL % 1 === 0 ? 0 : 3) + '주 / $' + rb.value.SOXL.toFixed(0) + '</div>' : '')
+          + '  </div>'
+          + '  <div class="target-card">'
+          + '    <div class="target-pct" style="font-size:22px">' + pctStr(rb.targetPct.QLD) + '</div>'
+          + '    <div class="target-ticker">' + target.satellite_ticker + ' 목표</div>'
+          + '    <div style="font-size:15px;font-weight:700;color:' + (rb.currentPct.QLD > rb.targetPct.QLD ? "#ea4335" : "#34a853") + ';margin-top:4px">'
+          +       pctStr(rb.currentPct.QLD) + ' 현재</div>'
+          + '    <div style="font-size:13px;color:#e8eaed;margin-top:4px">' + actStr(rb.actions.QLD, "QLD") + '</div>'
+          + (rb.holdings.QLD > 0 ? '<div style="font-size:11px;color:#9aa0a6">' + rb.holdings.QLD.toFixed(rb.holdings.QLD % 1 === 0 ? 0 : 3) + '주 / $' + rb.value.QLD.toFixed(0) + '</div>' : '')
+          + '  </div>'
+          + '</div>';
+        if (rb.cashTargetPct > 0) {
+          whtml += '<div style="text-align:center;font-size:13px;color:#9aa0a6;margin-top:6px">\uD83D\uDCB0 현금 목표: ' + pctStr(rb.cashTargetPct) + '</div>';
+        }
+        if (rb.warnings.length > 0) {
+          whtml += '<div style="margin-top:6px">';
+          for (var wi = 0; wi < rb.warnings.length; wi++) {
+            whtml += '<div style="font-size:11px;color:#f28b82;padding:2px 0">\u26A0\uFE0F ' + rb.warnings[wi] + '</div>';
+          }
+          whtml += '</div>';
+        }
+        return whtml;
+      })()
       + '</div>'
 
       + '<div class="card">'

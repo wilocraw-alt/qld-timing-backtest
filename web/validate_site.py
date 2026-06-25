@@ -327,7 +327,77 @@ def run_validation(site_dir):
             print(f"  - {doc_name} 내 누락된 경로:")
             for b in broken:
                 print(f"    * {b}")
-                
+
+    # 9. 리밸런싱 로직 단위테스트 실행
+    print("9. 리밸런싱 로직 단위테스트 검사...")
+    import subprocess
+    try:
+        # Get path to test script relative to repo root
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        test_script = os.path.join(repo_root, "web", "test_rebalance.mjs")
+        res = subprocess.run(["node", test_script], capture_output=True, text=True, check=False)
+        if res.returncode == 0:
+            print("[PASS] 9. 리밸런싱 단위테스트: 모든 단위테스트가 통과했습니다.")
+        else:
+            print(f"[FAIL] 9. 리밸런싱 단위테스트 실패 (exit {res.returncode}):")
+            print(res.stdout)
+            print(res.stderr)
+            all_pass = False
+    except Exception as e:
+        print(f"[FAIL] 9. 리밸런싱 단위테스트 실행 오류: {str(e)}")
+        all_pass = False
+
+    # 10. jTicker select 정적 검사 (Req1)
+    tpl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "template_index.html")
+    check10_ok = True
+    check10_reasons = []
+    if os.path.exists(tpl_path):
+        with open(tpl_path, "r", encoding="utf-8") as f:
+            tpl_content = f.read()
+        if 'select id="jTicker"' not in tpl_content:
+            check10_ok = False
+            check10_reasons.append("jTicker가 <select>가 아님")
+        if 'SOXL' not in tpl_content.split('select id="jTicker"')[1].split('</select>')[0] if 'select id="jTicker"' in tpl_content else '':
+            check10_ok = False
+            check10_reasons.append("select에 SOXL option 누락")
+        if 'QLD' not in tpl_content.split('select id="jTicker"')[1].split('</select>')[0] if 'select id="jTicker"' in tpl_content else '':
+            check10_ok = False
+            check10_reasons.append("select에 QLD option 누락")
+    else:
+        check10_ok = False
+        check10_reasons.append("template_index.html 파일 없음")
+
+    if check10_ok:
+        print("[PASS] 10. jTicker <select> 검사: SOXL/QLD option 포함.")
+    else:
+        print(f"[FAIL] 10. jTicker <select> 검사: {'; '.join(check10_reasons)}")
+        all_pass = False
+
+    # 11. 리밸런싱 카드 템플릿 문자열 검사 (Req3)
+    check11_ok = True
+    check11_reasons = []
+    if os.path.exists(tpl_path):
+        with open(tpl_path, "r", encoding="utf-8") as f:
+            tpl_content = f.read()
+        if '현재' not in tpl_content:
+            check11_ok = False
+            check11_reasons.append("현재배분 표시(currentPct) 문자열 누락")
+        if '매수' not in tpl_content or '매도' not in tpl_content:
+            check11_ok = False
+            check11_reasons.append("매수/매도 액션 문자열 누락")
+        if '목표' not in tpl_content:
+            check11_ok = False
+            check11_reasons.append("목표(targetPct) 문자열 누락")
+    else:
+        check11_ok = False
+        check11_reasons.append("template_index.html 파일 없음")
+
+    if check11_ok:
+        print("[PASS] 11. 리밸런싱 카드 문자열 검사: 현재배분·매수/매도·목표 키워드 존재.")
+    else:
+        print(f"[FAIL] 11. 리밸런싱 카드 문자열 검사: {'; '.join(check11_reasons)}")
+        all_pass = False
+
     print(f"=== 검증 완료: 결과 = {'통과(PASS)' if all_pass else '실패(FAIL)'} ===")
     return 0 if all_pass else 1
 

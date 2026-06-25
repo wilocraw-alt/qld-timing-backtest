@@ -45,6 +45,13 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 배포 URL: https://wilocraw-alt.github.io/qld-timing-backtest/ (public, 사용자 승인)
 참고: repo public 전환(무료 Pages 제약, 사용자 승인). 푸시 시 workflow scope 필요. 민감 런타임(state.json/advisor.log/.env)은 .gitignore 미추적. SW 캐시는 빌드별 버전화되어 배포 시 자동 갱신(예전엔 wath-signal-v1 고정이라 정체).
 
+## 웹 v2 추가요구 (2026-06-25) — 티커 select / 거래목록 UX / 현재배분·리밸런싱
+
+- [x] **V0. 요구확정 + PROPOSE→수렴**: 사용자 4결정(전체리밸런싱·신호반영·거래기록수량합산·SOXL/QLD) + NEUTRAL=보유상태기반동적. opencode·antigravity PROPOSE 수렴 → plan_web-v2-final.
+- [ ] **V-IMPL (opencode)**: template_index.html에 Req1(티커 select)+Req2(종목요약강화·목록제한더보기·폼접이식·삭제confirm)+Req3(현재배분%·리밸런싱 매수/매도$·주수, 신호ON/OFF/NEUTRAL분기) 구현 + window.__computeRebalance 순수함수 노출.
+- [ ] **V-TESTGEN (antigravity)**: web/test_rebalance.mjs Node 단위테스트(vm 추출, 8케이스) — 병렬.
+- [ ] **V-VERIFY (opencode, 후행)**: build_site+validate_site+node test_rebalance.mjs 실행 pass/fail+수치 보고, validate_site에 정적검사 추가.
+
 ## 진행 이력
 
 - 2026-06-19 — 0단계 완료: 요구사항 확정(트랜치 균등10%/일상한$1k/전체기간/$10k, 비교군 2종), 설계 PROPOSE 병렬→수렴(plan-final)

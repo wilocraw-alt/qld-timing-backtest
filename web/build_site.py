@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 정적 사이트 빌더 — 추천 전략 ①(SOXL60 buffer±3% + QLD40)의
 데일리 신호·목표배분을 보여주는 모바일 PWA 사이트 생성.
