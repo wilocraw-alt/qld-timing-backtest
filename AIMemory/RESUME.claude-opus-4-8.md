@@ -17,6 +17,7 @@
   - GitHub Actions 매일 **07:30 KST**(`.github/workflows/daily.yml`, cron `30 22 * * *`) 자동 갱신 + workflow_dispatch.
   - 기능(v1): 데일리 신호 배지(ON/OFF/NEUTRAL), SOXX 120MA ±3% **전기간(~500pts) 시계열 차트(2W/3M/6M/1Y 토글)**(▲매수 초록/▼매도 빨강 마커), 수집날짜 KST 제목하단, 목표배분, 최신가, 🔄 새로고침 + ⟳ Actions 수동트리거, **기기별 거래로그(localStorage `wath_journal_v1`)** 평단입력→수익률·JSON 내보내기/가져오기, PWA 오프라인.
   - **기능(v2, 2026-06-25 추가)**: ① 거래폼 티커 **SOXL/QLD select**(자유입력→드롭다운) ② 거래목록 UX(종목별 요약 강화: 보유수량·평단·평가손익 / 목록 **최신 20개 제한 + 더보기·접기** / 입력폼 **접이식 "+ 거래 추가"** / 삭제 **confirm**) ③ 목표배분 카드에 **현재 배분% + 리밸런싱 지시**(현재가 기준 종목별 매수/매도 $·주수). **신호 반영**: ON=60/40, OFF=SOXL 0%·현금60%, **NEUTRAL=보유상태 기반 동적**(SOXL 보유>$1면 60/40, 미보유면 OFF목표). 계산은 순수함수 `window.__computeRebalance(journal, prices, signalState)`로 분리(테스트 대상).
+- **2026-07-01 개편**: 리밸런싱 입력을 현재보유 덮어쓰기(누적X)로 교체 + 추가 구매 $ 전체재분배(매도허용) + 매수/매도·보유 주수 소수점 4자리(fmtShares). 계산 순수함수 `__computeRebalance(journal,prices,signalState,additionalCash)`.
 - **git**: HEAD `953e283`(feat web v2), origin/main 동기(unpushed 0). repo **public**(사용자 승인).
 - **워킹트리**: `AIMemory/` 오케스트레이션 산출물만 uncommitted(work.log·run-summary·agents.md·plan/requirements). 일부러 커밋 안 함(self-loop·HOME경로 방지). `handoff_*.md`/`.aimux/`/`tmp/`는 .gitignore. 배포 코드(web/)는 전부 커밋됨.
 

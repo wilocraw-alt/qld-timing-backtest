@@ -54,8 +54,17 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 - [x] **V-RENDER (opencode)**: playwright 헤드리스 렌더 스모크 18/18 PASS(select·폼토글·20제한더보기·보유수량·평단·리밸런싱 현재/목표/매수매도·삭제confirm·페이지에러0). 초기 [object Object] 에러는 테스트하니스 버그(JSON.stringify 누락)로 확정·수정 — 앱 무결. 템플릿 클린(디버그 잔여無).
 - [x] **V-SHIP**: 커밋 953e283 push(wilocraw-alt/qld-timing-backtest main). web/ + CHECKLIST/PROJECT/TESTING-web-v2.md만. 테스트가이드 TESTING-web-v2.md.
 
+## 리밸런싱 입력 개편 (2026-07-01)
+
+- [x] **RB-0. 요구확정**: 사용자 클라리피케이션 — 입력=주수(소수점), 기존 거래로그 완전교체(덮어쓰기), 추가현금 전체재분배(매도허용), 소수점 절삭금지 4자리.
+- [x] **RB-1. 검증 (opencode)**: node test_rebalance.mjs 40/40 + build + validate 11/11. R1 덮어쓰기·R3 추가현금 재분배 충족.
+- [x] **RB-2. 리뷰 (antigravity)**: 읽기전용 코드/UX 리뷰 — R2 actStr 소수점 절삭 결함 지목(3스트림 수렴).
+- [x] **RB-3. FIX (opencode)**: fmtShares(4자리·trailing0 제거) → actStr·holdings 적용. 회귀 40/40·11/11.
+- [x] **RB-SHIP**: web/ + 문서 커밋·push·daily.yml 배포·라이브 200 확인.
+
 ## 진행 이력
 
 - 2026-06-19 — 0단계 완료: 요구사항 확정(트랜치 균등10%/일상한$1k/전체기간/$10k, 비교군 2종), 설계 PROPOSE 병렬→수렴(plan-final)
 - 2026-06-20 — 웹사이트 후속: README 프로젝트화 + 데일리 신호 PWA(web/) + GH Actions 일일배포(.github/workflows/daily.yml, 08:30 KST) + 정적검증 하니스. 라이브 https://wilocraw-alt.github.io/qld-timing-backtest/ . SW 등록 FIX 재배포 진행 중.
 - 2026-06-23 — 웹 개선 5종 배포: 차트 2W/3M/6M/1Y 토글·수집날짜 KST 표시·거래로그 JSON export/import·cron 07:30 KST. 라이브 검증 통과(20d7d7e).
+- 2026-07-01 — 리밸런싱 입력 개편 배포: 현재보유 덮어쓰기·추가현금 재분배·소수점4자리. 검증 40/40·11/11.

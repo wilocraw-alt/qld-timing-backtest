@@ -192,5 +192,36 @@ try {
   console.log(`  [FAIL] 음수 보유 에러: ${e.message}`);
 }
 
+// 9. 추가 투자 금액 리밸런싱 (Additional Cash Rebalancing - Buy only/Hold)
+try {
+  const journal = [
+    { id: 1, date: '2026-06-25', type: 'buy', ticker: 'SOXL', price: 20, qty: 300 }
+  ];
+  const res = computeRebalance(journal, prices, 'ON', 4000);
+  assert(res && res.base === 6000, '추가 투자 1: base = 6000');
+  assert(res && res.pool === 10000, '추가 투자 1: pool = 10000');
+  assert(res && approx(res.targetPct.SOXL, 0.6) && approx(res.targetPct.QLD, 0.4), '추가 투자 1: targetPct SOXL=0.6, QLD=0.4');
+  assert(res && res.actions.SOXL.side === 'hold' && approx(res.actions.SOXL.usd, 0), '추가 투자 1: SOXL hold ($0)');
+  assert(res && res.actions.QLD.side === 'buy' && approx(res.actions.QLD.usd, 4000) && approx(res.actions.QLD.shares, 40), '추가 투자 1: QLD buy $4000 (40 shares)');
+} catch (e) {
+  failed++;
+  console.log(`  [FAIL] 추가 투자 1 에러: ${e.message}`);
+}
+
+// 10. 추가 투자 금액 리밸런싱 (Additional Cash Rebalancing - Sell & Buy reallocate)
+try {
+  const journal = [
+    { id: 1, date: '2026-06-25', type: 'buy', ticker: 'SOXL', price: 20, qty: 300 }
+  ];
+  const res = computeRebalance(journal, prices, 'ON', 1000);
+  assert(res && res.base === 6000, '추가 투자 2: base = 6000');
+  assert(res && res.pool === 7000, '추가 투자 2: pool = 7000');
+  assert(res && res.actions.SOXL.side === 'sell' && approx(res.actions.SOXL.usd, 1800) && approx(res.actions.SOXL.shares, 90), '추가 투자 2: SOXL sell $1800 (90 shares)');
+  assert(res && res.actions.QLD.side === 'buy' && approx(res.actions.QLD.usd, 2800) && approx(res.actions.QLD.shares, 28), '추가 투자 2: QLD buy $2800 (28 shares)');
+} catch (e) {
+  failed++;
+  console.log(`  [FAIL] 추가 투자 2 에러: ${e.message}`);
+}
+
 console.log(`\n--- 테스트 종료: ${passed + failed} run, ${passed} passed, ${failed} failed ---`);
 process.exit(failed > 0 ? 1 : 0);
