@@ -61,6 +61,7 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 - [x] **RB-2. 리뷰 (antigravity)**: 읽기전용 코드/UX 리뷰 — R2 actStr 소수점 절삭 결함 지목(3스트림 수렴).
 - [x] **RB-3. FIX (opencode)**: fmtShares(4자리·trailing0 제거) → actStr·holdings 적용. 회귀 40/40·11/11.
 - [x] **RB-SHIP**: web/ + 문서 커밋·push·daily.yml 배포·라이브 200 확인.
+- [x] **RB-4. 보유현황 동시입력 (opencode)**: 티커 select 제거 → SOXL·QLD 두 입력란 동시표시·__saveHoldings 일괄 덮어쓰기·폼 프리필. validate #10 갱신(4입력 검사). 검증 40/40·11/11.
 
 ## 진행 이력
 
@@ -68,3 +69,4 @@ plan 단계(claude/plan.md)가 이 파일을 채운다. 사용자 합의 후 구
 - 2026-06-20 — 웹사이트 후속: README 프로젝트화 + 데일리 신호 PWA(web/) + GH Actions 일일배포(.github/workflows/daily.yml, 08:30 KST) + 정적검증 하니스. 라이브 https://wilocraw-alt.github.io/qld-timing-backtest/ . SW 등록 FIX 재배포 진행 중.
 - 2026-06-23 — 웹 개선 5종 배포: 차트 2W/3M/6M/1Y 토글·수집날짜 KST 표시·거래로그 JSON export/import·cron 07:30 KST. 라이브 검증 통과(20d7d7e).
 - 2026-07-01 — 리밸런싱 입력 개편 배포: 현재보유 덮어쓰기·추가현금 재분배·소수점4자리. 검증 40/40·11/11.
+- 2026-07-01 — 보유현황 입력 개선 배포: select 제거·SOXL/QLD 동시입력·덮어쓰기. 검증 40/40·11/11.

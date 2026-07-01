@@ -347,30 +347,26 @@ def run_validation(site_dir):
         print(f"[FAIL] 9. 리밸런싱 단위테스트 실행 오류: {str(e)}")
         all_pass = False
 
-    # 10. jTicker select 정적 검사 (Req1)
+    # 10. 보유현황 SOXL/QLD 동시입력란 정적 검사
     tpl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "template_index.html")
     check10_ok = True
     check10_reasons = []
+    required_ids = ["jPriceSOXL", "jQtySOXL", "jPriceQLD", "jQtyQLD"]
     if os.path.exists(tpl_path):
         with open(tpl_path, "r", encoding="utf-8") as f:
             tpl_content = f.read()
-        if 'select id="jTicker"' not in tpl_content:
-            check10_ok = False
-            check10_reasons.append("jTicker가 <select>가 아님")
-        if 'SOXL' not in tpl_content.split('select id="jTicker"')[1].split('</select>')[0] if 'select id="jTicker"' in tpl_content else '':
-            check10_ok = False
-            check10_reasons.append("select에 SOXL option 누락")
-        if 'QLD' not in tpl_content.split('select id="jTicker"')[1].split('</select>')[0] if 'select id="jTicker"' in tpl_content else '':
-            check10_ok = False
-            check10_reasons.append("select에 QLD option 누락")
+        for rid in required_ids:
+            if f'id="{rid}"' not in tpl_content:
+                check10_ok = False
+                check10_reasons.append(f"id={rid} 누락")
     else:
         check10_ok = False
         check10_reasons.append("template_index.html 파일 없음")
 
     if check10_ok:
-        print("[PASS] 10. jTicker <select> 검사: SOXL/QLD option 포함.")
+        print("[PASS] 10. 보유현황 SOXL/QLD 동시입력란: 4개 입력(id=jPriceSOXL, jQtySOXL, jPriceQLD, jQtyQLD) 존재 확인.")
     else:
-        print(f"[FAIL] 10. jTicker <select> 검사: {'; '.join(check10_reasons)}")
+        print(f"[FAIL] 10. 보유현황 SOXL/QLD 동시입력란: {'; '.join(check10_reasons)}")
         all_pass = False
 
     # 11. 리밸런싱 카드 템플릿 문자열 검사 (Req3)

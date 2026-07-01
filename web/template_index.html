@@ -253,44 +253,28 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     } catch(_) {}
   }
 
-  window.__addEntry = function() {
-    var date = new Date().toISOString().slice(0, 10);
-    var type = "buy";
-    var ticker = document.getElementById("jTicker").value.trim().toUpperCase();
-    var price = parseFloat(document.getElementById("jPrice").value);
-    var qty = parseFloat(document.getElementById("jQty").value) || 0;
-    var memo = document.getElementById("jMemo").value.trim();
-    if (!ticker || isNaN(price) || price <= 0 || isNaN(qty) || qty < 0) { alert("티커·평단가·수량(0 이상)을 올바르게 입력해주세요."); return; }
-    var j = getJournal();
-    
-    var foundIndex = -1;
-    for (var idx = 0; idx < j.length; idx++) {
-      if (j[idx].ticker === ticker) {
-        foundIndex = idx;
-        break;
+  window.__saveHoldings = function() {
+    var tickers = [
+      { ticker: "SOXL", priceId: "jPriceSOXL", qtyId: "jQtySOXL" },
+      { ticker: "QLD",  priceId: "jPriceQLD",  qtyId: "jQtyQLD" }
+    ];
+    var entries = [];
+    var now = Date.now();
+    for (var ti = 0; ti < tickers.length; ti++) {
+      var t = tickers[ti];
+      var price = parseFloat(document.getElementById(t.priceId).value);
+      var qty = parseFloat(document.getElementById(t.qtyId).value) || 0;
+      if (qty > 0) {
+        if (isNaN(price) || price <= 0) {
+          alert(t.ticker + ": 수량이 있으면 평단가를 입력해주세요.");
+          return;
+        }
+        entries.push({ id: now + ti, date: new Date().toISOString().slice(0, 10), type: "buy", ticker: t.ticker, price: price, qty: qty });
       }
     }
-    
-    var entry = {
-      id: foundIndex >= 0 ? j[foundIndex].id : Date.now(),
-      date: date,
-      type: type,
-      ticker: ticker,
-      price: price,
-      qty: qty,
-      memo: memo
-    };
-    
-    if (foundIndex >= 0) {
-      j[foundIndex] = entry;
-    } else {
-      j.push(entry);
-    }
-    
-    saveJournal(j);
+    saveJournal(entries);
     renderJournal();
     renderRebalance();
-    // redraw chart markers
     var canvas = document.getElementById("chart");
     if (canvas && cachedSeries) drawChart(canvas, cachedSeries);
   };
@@ -318,6 +302,18 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
     var shown = form.style.display !== "none";
     form.style.display = shown ? "none" : "block";
     btn.textContent = shown ? "+ 보유 현황 입력" : "− 접기";
+    if (!shown) {
+      var j = getJournal();
+      var soxlEntry = null, qldEntry = null;
+      for (var idx = 0; idx < j.length; idx++) {
+        if (j[idx].ticker === "SOXL") soxlEntry = j[idx];
+        if (j[idx].ticker === "QLD") qldEntry = j[idx];
+      }
+      document.getElementById("jPriceSOXL").value = soxlEntry ? soxlEntry.price : "";
+      document.getElementById("jQtySOXL").value = soxlEntry ? soxlEntry.qty : "";
+      document.getElementById("jPriceQLD").value = qldEntry ? qldEntry.price : "";
+      document.getElementById("jQtyQLD").value = qldEntry ? qldEntry.qty : "";
+    }
   };
 
   function renderRebalance() {
@@ -804,17 +800,19 @@ h1 { font-size: 18px; font-weight: 700; text-align: center; padding: 20px 0 8px;
       + '    <button class="btn-primary" onclick="window.__importJournal()">📥 가져오기</button>'
       + '  </div>'
       + '  <input type="file" id="journalFileInput" accept=".json" style="display:none" onchange="window.__handleImport(event)">'
-      + '  <div id="journalForm" style="display:none">'
-      + '    <div class="form-row">'
-      + '      <select id="jTicker" class="form-select" style="flex:1"><option value="SOXL" selected>SOXL</option><option value="QLD">QLD</option></select>'
-      + '      <input type="number" id="jPrice" class="form-input" placeholder="평단가 $" step="0.01" style="flex:2">'
-      + '    </div>'
-      + '    <div class="form-row">'
-      + '      <input type="number" id="jQty" class="form-input" placeholder="보유 수량" step="0.001" style="flex:1">'
-      + '      <input type="text" id="jMemo" class="form-input" placeholder="메모(선택)" style="flex:2">'
-      + '    </div>'
-      + '    <button class="form-btn" onclick="window.__addEntry()">+ 저장 / 덮어쓰기</button>'
-      + '  </div>'
+       + '  <div id="journalForm" style="display:none">'
+       + '    <div class="form-row">'
+       + '      <span style="width:40px;font-weight:700;color:#8ab4f8">SOXL</span>'
+       + '      <input type="number" id="jPriceSOXL" class="form-input" placeholder="평단가 $" step="0.01" style="flex:2">'
+       + '      <input type="number" id="jQtySOXL" class="form-input" placeholder="보유 수량" step="0.0001" style="flex:2">'
+       + '    </div>'
+       + '    <div class="form-row">'
+       + '      <span style="width:40px;font-weight:700;color:#f28b82">QLD</span>'
+       + '      <input type="number" id="jPriceQLD" class="form-input" placeholder="평단가 $" step="0.01" style="flex:2">'
+       + '      <input type="number" id="jQtyQLD" class="form-input" placeholder="보유 수량" step="0.0001" style="flex:2">'
+       + '    </div>'
+       + '    <button class="form-btn" onclick="window.__saveHoldings()">+ 저장 / 덮어쓰기</button>'
+       + '  </div>'
       + '  <div id="journalSummary"></div>'
       + '  <div id="journalList"></div>'
       + '  <div style="font-size:10px;color:#5f6368;text-align:center;margin-top:6px">\uD83D\uDD12 기기별 저장 (localStorage) — 서버 전송 없음</div>'
